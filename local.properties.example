@@ -1,0 +1,10 @@
+## Template de Configuração Local - CineTV
+## Copie este arquivo para 'local.properties' e preencha suas credenciais reais.
+## NUNCA envie ou commite o arquivo 'local.properties' no Git!
+
+# Caminho do Android SDK no seu computador:
+sdk.dir=C:\\Users\\SEU_USUARIO\\AppData\\Local\\Android\\Sdk
+
+# Chaves de API do TMDB (Obtidas em https://www.themoviedb.org/settings/api):
+TMDB_API_KEY=sua_api_key_v3_aqui
+TMDB_READ_ACCESS_TOKEN=seu_token_v4_aqui
