@@ -141,7 +141,7 @@ fun DetailsScreen(
 
         LazyColumn(
             state = detailsListState,
-            contentPadding = PaddingValues(start = 52.dp, end = 52.dp, top = 24.dp, bottom = 120.dp),
+            contentPadding = PaddingValues(start = 52.dp, end = 52.dp, top = 24.dp, bottom = 72.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             // CABEÇALHO COM BOTÃO VOLTAR
@@ -352,7 +352,7 @@ fun DetailsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .bringIntoViewRequester(episodesBringIntoView)
-                            .padding(bottom = 60.dp)
+                            .padding(bottom = 36.dp)
                     ) {
                         Text(
                             text = "EPISÓDIOS // TEMPORADA $currentSeason",
@@ -416,9 +416,9 @@ fun DetailsScreen(
                 }
             }
 
-            // Espaçamento generoso no rodapé para garantir que o foco no último item nunca encoste na borda inferior da TV
+            // Espaçamento equilibrado no rodapé para garantir que o foco no último item nunca encoste na borda inferior da TV
             item(key = "details_footer_breathing_space") {
-                Spacer(modifier = Modifier.height(140.dp))
+                Spacer(modifier = Modifier.height(84.dp))
             }
         }
     }

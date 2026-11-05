@@ -533,9 +533,9 @@ fun HomeScreen(
                 }
             }
 
-            // Espaçamento inferior generoso para garantir que a última fileira não encoste na borda inferior da TV
+            // Espaçamento inferior equilibrado para garantir que a última fileira não encoste na borda inferior da TV
             item(key = "footer_breathing_space") {
-                Spacer(modifier = Modifier.height(100.dp))
+                Spacer(modifier = Modifier.height(60.dp))
             }
         }
     }
