@@ -49,16 +49,23 @@ fun DetailsScreen(
     val episodesRowState = rememberLazyListState()
 
     val isTv = item.mediaType == "tv"
+    val lastWatched = remember(item.id) {
+        if (isTv) PlaybackHistoryManager.getLastWatchedEpisode(context, item.id) else Pair(1, 1)
+    }
     var tvDetails by remember { mutableStateOf<TvDetailsResponse?>(null) }
-    var currentSeason by remember { mutableStateOf(1) }
+    var currentSeason by remember { mutableStateOf(if (isTv) lastWatched.first else 1) }
     var episodes by remember { mutableStateOf<List<TvEpisode>>(emptyList()) }
     var isLoadingEpisodes by remember { mutableStateOf(false) }
 
     LaunchedEffect(item.id) {
         if (isTv) {
             tvDetails = repository.getTvDetails(item.id)
-            val firstSeason = tvDetails?.seasons?.firstOrNull { it.seasonNumber > 0 }?.seasonNumber ?: 1
-            currentSeason = firstSeason
+            val availableSeasons = tvDetails?.seasons?.filter { it.seasonNumber > 0 } ?: emptyList()
+            if (availableSeasons.any { it.seasonNumber == lastWatched.first }) {
+                currentSeason = lastWatched.first
+            } else {
+                currentSeason = availableSeasons.firstOrNull()?.seasonNumber ?: 1
+            }
         }
         try {
             playButtonFocusRequester.requestFocus()
@@ -109,7 +116,7 @@ fun DetailsScreen(
         )
 
         LazyColumn(
-            contentPadding = PaddingValues(horizontal = NeoDimens.SafeH, vertical = 24.dp),
+            contentPadding = PaddingValues(start = 52.dp, end = 52.dp, top = 24.dp, bottom = 80.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             // CABEÇALHO COM BOTÃO VOLTAR
@@ -173,15 +180,17 @@ fun DetailsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Progresso salvo no histórico (se houver)
-                val savedPos = PlaybackHistoryManager.getPlaybackPosition(context, item.id)
-                val savedDur = PlaybackHistoryManager.getPlaybackDuration(context, item.id)
+                val targetEpisode = if (isTv) lastWatched.second else 1
+                val savedPos = PlaybackHistoryManager.getPlaybackPosition(context, item.id, if (isTv) currentSeason else 0, if (isTv) targetEpisode else 0)
+                val savedDur = PlaybackHistoryManager.getPlaybackDuration(context, item.id, if (isTv) currentSeason else 0, if (isTv) targetEpisode else 0)
                 val hasProgress = savedPos > 5000L
 
                 if (hasProgress) {
                     val progressRatio = if (savedDur > 0) (savedPos.toFloat() / savedDur.toFloat()).coerceIn(0f, 1f) else 0f
+                    val epLabel = if (isTv) " (T${currentSeason}E${targetEpisode})" else ""
                     Column(modifier = Modifier.padding(bottom = 16.dp)) {
                         Text(
-                            text = "CONTINUAR DE ONDE PAROU: ${formatTime(savedPos)} / ${formatTime(savedDur)}",
+                            text = "CONTINUAR DE ONDE PAROU$epLabel: ${formatTime(savedPos)} / ${formatTime(savedDur)}",
                             style = NeoType.Badge,
                             color = NeoColors.Yellow
                         )
@@ -211,7 +220,7 @@ fun DetailsScreen(
                             else -> "[ ASSISTIR AGORA ]"
                         },
                         onClick = {
-                            onPlayVideo(currentSeason, 1, null)
+                            onPlayVideo(currentSeason, targetEpisode, null)
                         },
                         variant = NeoButtonVariant.Primary,
                         modifier = Modifier.focusRequester(playButtonFocusRequester)
@@ -222,7 +231,7 @@ fun DetailsScreen(
                             text = "[ DO INÍCIO ]",
                             onClick = {
                                 PlaybackHistoryManager.clearPlaybackPosition(context, item.id)
-                                onPlayVideo(currentSeason, 1, null)
+                                onPlayVideo(currentSeason, targetEpisode, null)
                             },
                             variant = NeoButtonVariant.Secondary
                         )
@@ -243,7 +252,10 @@ fun DetailsScreen(
                         color = NeoColors.TextPrimary
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(start = 2.dp, end = 32.dp, top = 2.dp, bottom = 6.dp)
+                    ) {
                         items(seasons) { s ->
                             val isSelected = (s.seasonNumber == currentSeason)
                             NeoPillButton(
@@ -304,7 +316,7 @@ fun DetailsScreen(
                         LazyRow(
                             state = episodesRowState,
                             horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                            contentPadding = PaddingValues(start = 4.dp, end = 48.dp, top = 8.dp, bottom = 20.dp)
                         ) {
                             items(episodes, key = { it.id }) { ep ->
                                 NeoEpisodeCard(
@@ -318,7 +330,7 @@ fun DetailsScreen(
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(48.dp))
+                        Spacer(modifier = Modifier.height(32.dp))
                     }
                 }
             }

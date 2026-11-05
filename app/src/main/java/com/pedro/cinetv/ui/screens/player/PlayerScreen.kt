@@ -190,7 +190,7 @@ fun PlayerScreen(
         val isTv = item.mediaType == "tv"
 
         // Verifica posição salva no histórico local
-        val savedPos = PlaybackHistoryManager.getPlaybackPosition(context, item.id)
+        val savedPos = PlaybackHistoryManager.getPlaybackPosition(context, item.id, if (isTv) season else 0, if (isTv) episode else 0)
         if (savedPos > 3000L) {
             resumeNotice = "RETOMANDO DE ${formatTime(savedPos)}"
         }

@@ -169,8 +169,8 @@ fun NeoEpisodeCard(
     NeoCard(
         onClick = onClick,
         modifier = modifier
-            .width(260.dp)
-            .height(150.dp)
+            .width(220.dp)
+            .height(124.dp)
     ) {
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
@@ -193,7 +193,7 @@ fun NeoEpisodeCard(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(10.dp)
+                .padding(8.dp)
         ) {
             Text(
                 text = "EP $episodeNumber // ${name.uppercase()}",

@@ -80,7 +80,14 @@ object PlaybackHistoryManager {
             .putLong("$KEY_POS_PREFIX$itemId", positionMs)
             .putLong("$KEY_DUR_PREFIX$itemId", durationMs)
             .putLong("$KEY_TIME_PREFIX$itemId", now)
+            .putInt("${itemId}_last_season", season)
+            .putInt("${itemId}_last_episode", episode)
             .putInt(KEY_LAST_ITEM_ID, itemId)
+
+        if (season > 0 && episode > 0) {
+            editor.putLong("${KEY_POS_PREFIX}${itemId}_s${season}_e${episode}", positionMs)
+            editor.putLong("${KEY_DUR_PREFIX}${itemId}_s${season}_e${episode}", durationMs)
+        }
 
         // Atualiza a lista estruturada de Continuar Assistindo
         try {
@@ -131,16 +138,32 @@ object PlaybackHistoryManager {
         }
     }
 
-    fun getPlaybackPosition(context: Context, itemId: Int): Long {
+    fun getPlaybackPosition(context: Context, itemId: Int, season: Int = 0, episode: Int = 0): Long {
         if (itemId <= 0) return 0L
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (season > 0 && episode > 0) {
+            val epPos = prefs.getLong("${KEY_POS_PREFIX}${itemId}_s${season}_e${episode}", 0L)
+            if (epPos > 0) return epPos
+        }
         return prefs.getLong("$KEY_POS_PREFIX$itemId", 0L)
     }
 
-    fun getPlaybackDuration(context: Context, itemId: Int): Long {
+    fun getPlaybackDuration(context: Context, itemId: Int, season: Int = 0, episode: Int = 0): Long {
         if (itemId <= 0) return 0L
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (season > 0 && episode > 0) {
+            val epDur = prefs.getLong("${KEY_DUR_PREFIX}${itemId}_s${season}_e${episode}", 0L)
+            if (epDur > 0) return epDur
+        }
         return prefs.getLong("$KEY_DUR_PREFIX$itemId", 0L)
+    }
+
+    fun getLastWatchedEpisode(context: Context, itemId: Int): Pair<Int, Int> {
+        if (itemId <= 0) return Pair(1, 1)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val s = prefs.getInt("${itemId}_last_season", 1)
+        val e = prefs.getInt("${itemId}_last_episode", 1)
+        return Pair(s, e)
     }
 
     fun clearPlaybackPosition(context: Context, itemId: Int) {
