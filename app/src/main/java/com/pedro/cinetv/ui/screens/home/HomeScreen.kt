@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -121,6 +123,7 @@ fun HomeScreen(
 
     LazyColumn(
         state = viewModel.listState,
+        contentPadding = PaddingValues(bottom = 64.dp),
         modifier = modifier
             .fillMaxSize()
             .background(NeoColors.Bg)
@@ -186,7 +189,10 @@ fun HomeScreen(
                             color = NeoColors.Yellow
                         )
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             NeoPillButton(
                                 text = "INÍCIO",
                                 isSelected = (activeFilter == "INICIO"),
@@ -202,9 +208,11 @@ fun HomeScreen(
                                 isSelected = (activeFilter == "SERIES"),
                                 onClick = { activeFilter = "SERIES" }
                             )
-                            NeoPillButton(
-                                text = "BUSCA",
-                                onClick = onSearchClicked
+                            NeoIconButton(
+                                icon = Icons.Filled.Search,
+                                contentDescription = "Buscar",
+                                onClick = onSearchClicked,
+                                buttonSize = 42.dp
                             )
                         }
                     }
@@ -287,7 +295,10 @@ fun HomeScreen(
                         color = NeoColors.Yellow
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         NeoPillButton(
                             text = "INÍCIO",
                             isSelected = (activeFilter == "INICIO"),
@@ -303,9 +314,11 @@ fun HomeScreen(
                             isSelected = (activeFilter == "SERIES"),
                             onClick = { activeFilter = "SERIES" }
                         )
-                        NeoPillButton(
-                            text = "BUSCA",
-                            onClick = onSearchClicked
+                        NeoIconButton(
+                            icon = Icons.Filled.Search,
+                            contentDescription = "Buscar",
+                            onClick = onSearchClicked,
+                            buttonSize = 42.dp
                         )
                     }
                 }
@@ -330,7 +343,7 @@ fun HomeScreen(
                             modifier = Modifier.padding(horizontal = NeoDimens.SafeH, vertical = 8.dp)
                         )
                         LazyRow(
-                            contentPadding = PaddingValues(horizontal = NeoDimens.SafeH),
+                            contentPadding = PaddingValues(horizontal = NeoDimens.SafeH, vertical = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(NeoDimens.Gap)
                         ) {
                             items(filteredWatching, key = { "cw_${it.id}" }) { cw ->
@@ -403,8 +416,12 @@ fun HomeScreen(
                         onItemSelected(item)
                     }
                 )
-                Spacer(modifier = Modifier.height(NeoDimens.SafeV))
             }
+        }
+
+        // Espaçamento inferior generoso para dar respiro visual e evitar que a última fileira cole na borda da tela
+        item(key = "footer_breathing_space") {
+            Spacer(modifier = Modifier.height(48.dp))
         }
     }
 }
@@ -432,7 +449,7 @@ private fun CatalogRow(
 
         LazyRow(
             state = state,
-            contentPadding = PaddingValues(horizontal = NeoDimens.SafeH),
+            contentPadding = PaddingValues(horizontal = NeoDimens.SafeH, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(NeoDimens.Gap)
         ) {
             items(items, key = { it.id }) { item ->

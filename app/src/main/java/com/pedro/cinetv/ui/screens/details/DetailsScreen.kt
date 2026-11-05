@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -42,8 +43,10 @@ fun DetailsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val repository = remember { TmdbRepository() }
     val playButtonFocusRequester = remember { FocusRequester() }
+    val episodesRowState = rememberLazyListState()
 
     val isTv = item.mediaType == "tv"
     var tvDetails by remember { mutableStateOf<TvDetailsResponse?>(null) }
@@ -62,11 +65,14 @@ fun DetailsScreen(
         } catch (_: Exception) {}
     }
 
+    // Sempre que trocar a temporada, busca os novos episódios e reseta a rolagem para o primeiro episódio
     LaunchedEffect(item.id, currentSeason) {
         if (isTv) {
             isLoadingEpisodes = true
-            episodes = repository.getTvSeason(item.id, currentSeason)
+            val seasonData = repository.getTvSeason(item.id, currentSeason)
+            episodes = seasonData?.episodes ?: emptyList()
             isLoadingEpisodes = false
+            episodesRowState.scrollToItem(0, 0)
         }
     }
 
@@ -75,26 +81,27 @@ fun DetailsScreen(
             .fillMaxSize()
             .background(NeoColors.Bg)
     ) {
-        // Backdrop com gradiente escuro de fundo
+        // Fundo com Imagem Escurecida
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(item.fullBackdropUrl)
-                .crossfade(200)
+                .crossfade(150)
                 .build(),
             contentDescription = item.displayTitle,
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { this.alpha = 0.35f }
+                .graphicsLayer { alpha = 0.35f }
         )
 
+        // Gradiente Escuro
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            NeoColors.Bg.copy(alpha = 0.5f),
+                        listOf(
+                            NeoColors.Bg.copy(alpha = 0.7f),
                             NeoColors.Bg.copy(alpha = 0.95f),
                             NeoColors.Bg
                         )
@@ -103,28 +110,43 @@ fun DetailsScreen(
         )
 
         LazyColumn(
-            contentPadding = PaddingValues(
-                horizontal = NeoDimens.SafeH,
-                vertical = NeoDimens.SafeV
-            ),
+            contentPadding = PaddingValues(horizontal = NeoDimens.SafeH, vertical = 24.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            item {
+            // CABEÇALHO COM BOTÃO VOLTAR
+            item(key = "header_back") {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.padding(bottom = 20.dp)
                 ) {
                     NeoButton(
-                        text = "[ VOLTAR ]",
+                        text = "< VOLTAR",
                         onClick = onBackClicked,
                         variant = NeoButtonVariant.Secondary
                     )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(
+                        text = "DETALHES // ${item.displayTitle.uppercase()}",
+                        style = NeoType.Badge,
+                        color = NeoColors.TextSecondary
+                    )
+                }
+            }
+
+            // INFORMAÇÕES PRINCIPAIS DO TÍTULO
+            item(key = "main_info") {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     NeoBadge(text = item.year)
                     NeoBadge(text = if (isTv) "SÉRIE" else "FILME")
-                    NeoRatingBar(voteAverage = item.voteAverage)
+                    if (item.voteAverage > 0) {
+                        NeoRatingBar(voteAverage = item.voteAverage)
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
                     text = item.displayTitle,
@@ -132,39 +154,29 @@ fun DetailsScreen(
                     color = NeoColors.TextPrimary
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // FAIXA LATERAL DE SINOPSE NEO-BRUTALISTA
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Box(
-                        modifier = Modifier
-                            .width(NeoDimens.StripeAccent)
-                            .height(90.dp)
-                            .background(NeoColors.Yellow, RectangleShape)
+                NeoMetadataStripe {
+                    Text(
+                        text = "SINOPSE //",
+                        style = NeoType.Badge,
+                        color = NeoColors.Yellow
                     )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "FICHA TÉCNICA // SINOPSE",
-                            style = NeoType.Badge,
-                            color = NeoColors.Yellow
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = item.overview.ifBlank { "Sinopse não informada pelo distribuidor." },
-                            style = NeoType.Body,
-                            color = NeoColors.TextSecondary,
-                            maxLines = 4
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = item.overview.ifBlank { "NENHUMA SINOPSE DISPONÍVEL." },
+                        style = NeoType.Body,
+                        color = NeoColors.TextSecondary,
+                        modifier = Modifier.widthIn(max = 760.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // AÇÕES DE REPRODUÇÃO
-                val savedPos = remember(item.id) { PlaybackHistoryManager.getPlaybackPosition(context, item.id) }
-                val savedDur = remember(item.id) { PlaybackHistoryManager.getPlaybackDuration(context, item.id) }
-                val hasProgress = savedPos > 4000L
+                // Progresso salvo no histórico (se houver)
+                val savedPos = PlaybackHistoryManager.getPlaybackPosition(context, item.id)
+                val savedDur = PlaybackHistoryManager.getPlaybackDuration(context, item.id)
+                val hasProgress = savedPos > 5000L
 
                 if (hasProgress) {
                     val progressRatio = if (savedDur > 0) (savedPos.toFloat() / savedDur.toFloat()).coerceIn(0f, 1f) else 0f
@@ -238,7 +250,14 @@ fun DetailsScreen(
                             NeoPillButton(
                                 text = "TEMP ${s.seasonNumber}",
                                 isSelected = isSelected,
-                                onClick = { currentSeason = s.seasonNumber }
+                                onClick = {
+                                    if (currentSeason != s.seasonNumber) {
+                                        currentSeason = s.seasonNumber
+                                        coroutineScope.launch {
+                                            episodesRowState.scrollToItem(0, 0)
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
@@ -283,7 +302,11 @@ fun DetailsScreen(
                     }
                 } else {
                     item(key = "episodes_row") {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        LazyRow(
+                            state = episodesRowState,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                        ) {
                             items(episodes, key = { it.id }) { ep ->
                                 NeoEpisodeCard(
                                     episodeNumber = ep.episodeNumber,
@@ -296,7 +319,7 @@ fun DetailsScreen(
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(32.dp))
+                        Spacer(modifier = Modifier.height(48.dp))
                     }
                 }
             }
