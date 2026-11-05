@@ -69,8 +69,7 @@ fun DetailsScreen(
     LaunchedEffect(item.id, currentSeason) {
         if (isTv) {
             isLoadingEpisodes = true
-            val seasonData = repository.getTvSeason(item.id, currentSeason)
-            episodes = seasonData?.episodes ?: emptyList()
+            episodes = repository.getTvSeason(item.id, currentSeason)
             isLoadingEpisodes = false
             episodesRowState.scrollToItem(0, 0)
         }

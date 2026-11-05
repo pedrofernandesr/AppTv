@@ -620,9 +620,9 @@ fun NeoRatingBar(
 
 @Composable
 fun NeoMetadataStripe(
-    content: @Composable ColumnScope.() -> Unit,
     modifier: Modifier = Modifier,
-    stripeColor: Color = NeoColors.Yellow
+    stripeColor: Color = NeoColors.Yellow,
+    content: @Composable ColumnScope.() -> Unit
 ) {
     Row(modifier = modifier) {
         Box(
