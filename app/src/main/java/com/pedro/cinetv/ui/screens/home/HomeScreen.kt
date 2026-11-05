@@ -2,12 +2,15 @@ package com.pedro.cinetv.ui.screens.home
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -87,6 +90,15 @@ fun HomeScreen(
                 playButtonFocusRequester.requestFocus()
             } catch (_: Exception) {}
         }
+    }
+
+    // Garante que ao recolher ou expandir o banner, a posição da lista permaneça
+    // perfeitamente sincronizada em (0, 0), mantendo o título da primeira seção totalmente visível
+    LaunchedEffect(isBannerFocused) {
+        delay(40)
+        viewModel.listState.scrollToItem(0, 0)
+        delay(140)
+        viewModel.listState.scrollToItem(0, 0)
     }
 
     val bannerHeight by animateDpAsState(
@@ -422,6 +434,9 @@ fun HomeScreen(
                                         .onFocusChanged {
                                             if (it.isFocused) {
                                                 isBannerFocused = false
+                                                coroutineScope.launch {
+                                                    viewModel.listState.scrollToItem(0, 0)
+                                                }
                                             }
                                         }
                                 )
@@ -439,6 +454,9 @@ fun HomeScreen(
                         items = if (activeFilter == "FILMES") state.trending.filter { it.mediaType != "tv" } else state.trending,
                         state = viewModel.trendingRowState,
                         upFocusRequester = if (isFirstCatalogRow) playButtonFocusRequester else null,
+                        isFirstRow = isFirstCatalogRow,
+                        listState = viewModel.listState,
+                        coroutineScope = coroutineScope,
                         onItemFocused = { item ->
                             isBannerFocused = false
                             viewModel.updateFeatured(item)
@@ -455,6 +473,7 @@ fun HomeScreen(
                         title = "FILMES POPULARES",
                         items = state.popularMovies,
                         state = viewModel.popularMoviesRowState,
+                        coroutineScope = coroutineScope,
                         onItemFocused = { item ->
                             isBannerFocused = false
                             viewModel.updateFeatured(item)
@@ -474,6 +493,9 @@ fun HomeScreen(
                         items = state.popularSeries,
                         state = viewModel.popularSeriesRowState,
                         upFocusRequester = if (isFirstCatalogRow && activeFilter == "SERIES") playButtonFocusRequester else null,
+                        isFirstRow = isFirstCatalogRow && activeFilter == "SERIES",
+                        listState = viewModel.listState,
+                        coroutineScope = coroutineScope,
                         onItemFocused = { item ->
                             isBannerFocused = false
                             viewModel.updateFeatured(item)
@@ -492,6 +514,7 @@ fun HomeScreen(
                         title = "EM CARTAZ // CINEMA",
                         items = state.nowPlaying,
                         state = viewModel.nowPlayingRowState,
+                        coroutineScope = coroutineScope,
                         onItemFocused = { item ->
                             isBannerFocused = false
                             viewModel.updateFeatured(item)
@@ -512,6 +535,7 @@ fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CatalogRow(
     title: String,
@@ -520,11 +544,17 @@ private fun CatalogRow(
     onItemFocused: (TmdbItem) -> Unit,
     onItemClicked: (TmdbItem) -> Unit,
     modifier: Modifier = Modifier,
-    upFocusRequester: FocusRequester? = null
+    upFocusRequester: FocusRequester? = null,
+    isFirstRow: Boolean = false,
+    listState: LazyListState? = null,
+    coroutineScope: kotlinx.coroutines.CoroutineScope? = null
 ) {
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester)
             .padding(bottom = NeoDimens.Gap)
     ) {
         Text(
@@ -553,6 +583,13 @@ private fun CatalogRow(
                         .onFocusChanged {
                             if (it.isFocused) {
                                 onItemFocused(item)
+                                coroutineScope?.launch {
+                                    if (isFirstRow && listState != null) {
+                                        listState.scrollToItem(0, 0)
+                                    } else {
+                                        bringIntoViewRequester.bringIntoView()
+                                    }
+                                }
                             }
                         }
                 )
