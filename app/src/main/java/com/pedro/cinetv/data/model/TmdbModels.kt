@@ -12,10 +12,13 @@ data class TmdbItem(
     @SerializedName("vote_average") val voteAverage: Double = 0.0,
     @SerializedName("release_date") val releaseDate: String? = null,
     @SerializedName("first_air_date") val firstAirDate: String? = null,
-    @SerializedName("media_type") val mediaType: String? = "movie"
+    @SerializedName("media_type") val mediaType: String? = null
 ) {
+    val isTv: Boolean
+        get() = mediaType == "tv" || !firstAirDate.isNullOrBlank() || (!name.isNullOrBlank() && title.isNullOrBlank())
+
     val displayTitle: String
-        get() = title ?: name ?: "SEM TÍTULO"
+        get() = (if (isTv) name ?: title else title ?: name) ?: "SEM TÍTULO"
 
     val year: String
         get() = (releaseDate ?: firstAirDate)?.take(4) ?: "----"

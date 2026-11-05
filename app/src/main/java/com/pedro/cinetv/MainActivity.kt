@@ -56,8 +56,14 @@ class MainActivity : ComponentActivity() {
                                     currentScreen = Screen.Details(item)
                                 },
                                 onPlayVideo = { item, season, episode ->
+                                    val isTvItem = item.isTv || season > 0
+                                    val resolvedItem = if (isTvItem && item.mediaType != "tv") {
+                                        item.copy(mediaType = "tv")
+                                    } else {
+                                        item
+                                    }
                                     currentScreen = Screen.Player(
-                                        item = item,
+                                        item = resolvedItem,
                                         season = season,
                                         episode = episode
                                     )
@@ -74,8 +80,14 @@ class MainActivity : ComponentActivity() {
                                     currentScreen = Screen.Home
                                 },
                                 onPlayVideo = { season, episode, title ->
+                                    val isTvItem = screen.item.isTv || season > 0
+                                    val resolvedItem = if (isTvItem && screen.item.mediaType != "tv") {
+                                        screen.item.copy(mediaType = "tv")
+                                    } else {
+                                        screen.item
+                                    }
                                     currentScreen = Screen.Player(
-                                        item = screen.item,
+                                        item = resolvedItem,
                                         season = season,
                                         episode = episode,
                                         episodeTitle = title

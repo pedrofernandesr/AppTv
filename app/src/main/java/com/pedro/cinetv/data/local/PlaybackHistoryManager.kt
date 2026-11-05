@@ -22,6 +22,9 @@ data class ContinueWatchingItem(
     val progressRatio: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
 
+    val isTv: Boolean
+        get() = mediaType == "tv" || season > 0
+
     val fullBackdropUrl: String
         get() = if (!backdropPath.isNullOrBlank()) "https://image.tmdb.org/t/p/w780$backdropPath" else fullPosterUrl
 
@@ -30,11 +33,11 @@ data class ContinueWatchingItem(
 
     fun toTmdbItem(): TmdbItem = TmdbItem(
         id = id,
-        title = if (mediaType == "tv") null else title,
-        name = if (mediaType == "tv") title else null,
+        title = if (isTv) null else title,
+        name = if (isTv) title else null,
         posterPath = posterPath,
         backdropPath = backdropPath,
-        mediaType = mediaType
+        mediaType = if (isTv) "tv" else "movie"
     )
 }
 
@@ -97,7 +100,8 @@ object PlaybackHistoryManager {
             val title = item?.displayTitle ?: "Título"
             val poster = item?.posterPath
             val backdrop = item?.backdropPath
-            val mediaType = item?.mediaType ?: "movie"
+            val isTvItem = item?.isTv == true || season > 0
+            val mediaType = if (isTvItem) "tv" else (item?.mediaType ?: "movie")
 
             history.add(
                 0,
@@ -172,6 +176,12 @@ object PlaybackHistoryManager {
             .remove("$KEY_POS_PREFIX$itemId")
             .remove("$KEY_DUR_PREFIX$itemId")
             .remove("$KEY_TIME_PREFIX$itemId")
+            .remove("${itemId}_last_season")
+            .remove("${itemId}_last_episode")
+
+        prefs.all.keys.filter { it.startsWith("${KEY_POS_PREFIX}${itemId}_") || it.startsWith("${KEY_DUR_PREFIX}${itemId}_") }.forEach {
+            editor.remove(it)
+        }
 
         try {
             val history = getContinueWatchingList(context).toMutableList()
@@ -181,6 +191,10 @@ object PlaybackHistoryManager {
         } catch (_: Exception) {}
 
         editor.apply()
+    }
+
+    fun isInContinueWatching(context: Context, itemId: Int): Boolean {
+        return getContinueWatchingList(context).any { it.id == itemId }
     }
 
     fun saveLastFocusedItem(context: Context, itemId: Int, rowIndex: Int = 0) {

@@ -187,7 +187,7 @@ fun PlayerScreen(
     LaunchedEffect(item.id, season, episode) {
         isLoadingSources = true
         errorMessage = null
-        val isTv = item.mediaType == "tv"
+        val isTv = item.isTv || season > 0
 
         // Verifica posição salva no histórico local
         val savedPos = PlaybackHistoryManager.getPlaybackPosition(context, item.id, if (isTv) season else 0, if (isTv) episode else 0)
@@ -254,7 +254,7 @@ fun PlayerScreen(
                     itemId = item.id,
                     positionMs = currentPositionMs,
                     durationMs = durationMs,
-                    item = item,
+                    item = if ((item.isTv || season > 0) && item.mediaType != "tv") item.copy(mediaType = "tv") else item,
                     season = season,
                     episode = episode,
                     episodeTitle = episodeTitle
@@ -313,7 +313,7 @@ fun PlayerScreen(
                 itemId = item.id,
                 positionMs = finalPos,
                 durationMs = finalDur,
-                item = item,
+                item = if ((item.isTv || season > 0) && item.mediaType != "tv") item.copy(mediaType = "tv") else item,
                 season = season,
                 episode = episode,
                 episodeTitle = episodeTitle
@@ -586,7 +586,7 @@ fun PlayerScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val headerTitle = if (item.mediaType == "tv") {
+                            val headerTitle = if (item.isTv || season > 0) {
                                 val epInfo = " // T${season}E${episode}" + if (!episodeTitle.isNullOrBlank()) " - ${episodeTitle.uppercase()}" else ""
                                 "${item.displayTitle.uppercase()}$epInfo"
                             } else {
@@ -704,7 +704,7 @@ fun PlayerScreen(
                             }
 
                             // Botão Próximo Episódio para Séries
-                            if (item.mediaType == "tv" && onPlayNextEpisode != null) {
+                            if ((item.isTv || season > 0) && onPlayNextEpisode != null) {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 NeoPillButton(
                                     text = "PRÓXIMO EP",

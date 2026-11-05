@@ -257,7 +257,7 @@ fun NeoContinueWatchingCard(
                 color = NeoColors.TextPrimary,
                 maxLines = 1
             )
-            val sub = if (item.mediaType == "tv") "T${item.season}E${item.episode}" else "FILME"
+            val sub = if (item.isTv) "T${item.season}E${item.episode}" else "FILME"
             Text(
                 text = "$sub // CONTINUAR",
                 style = NeoType.Badge,

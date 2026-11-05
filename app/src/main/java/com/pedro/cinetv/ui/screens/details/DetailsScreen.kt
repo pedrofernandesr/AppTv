@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -14,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -47,9 +49,10 @@ fun DetailsScreen(
     val repository = remember { TmdbRepository() }
     val playButtonFocusRequester = remember { FocusRequester() }
     val episodesRowState = rememberLazyListState()
+    val seasonsRowState = rememberLazyListState()
 
-    val isTv = item.mediaType == "tv"
-    val lastWatched = remember(item.id) {
+    var isTv by remember(item.id) { mutableStateOf(item.isTv) }
+    val lastWatched = remember(item.id, isTv) {
         if (isTv) PlaybackHistoryManager.getLastWatchedEpisode(context, item.id) else Pair(1, 1)
     }
     var tvDetails by remember { mutableStateOf<TvDetailsResponse?>(null) }
@@ -59,12 +62,28 @@ fun DetailsScreen(
 
     LaunchedEffect(item.id) {
         if (isTv) {
-            tvDetails = repository.getTvDetails(item.id)
-            val availableSeasons = tvDetails?.seasons?.filter { it.seasonNumber > 0 } ?: emptyList()
-            if (availableSeasons.any { it.seasonNumber == lastWatched.first }) {
-                currentSeason = lastWatched.first
-            } else {
-                currentSeason = availableSeasons.firstOrNull()?.seasonNumber ?: 1
+            val details = repository.getTvDetails(item.id)
+            if (details != null) {
+                tvDetails = details
+                val availableSeasons = details.seasons.filter { it.seasonNumber > 0 }
+                if (availableSeasons.any { it.seasonNumber == lastWatched.first }) {
+                    currentSeason = lastWatched.first
+                } else {
+                    currentSeason = availableSeasons.firstOrNull()?.seasonNumber ?: 1
+                }
+            }
+        } else {
+            // Fallback de detecção: se a TMDB tiver série com esse id e com temporadas, atualiza isTv
+            val details = repository.getTvDetails(item.id)
+            if (details != null && details.numberOfSeasons > 0 && details.seasons.isNotEmpty()) {
+                isTv = true
+                tvDetails = details
+                val availableSeasons = details.seasons.filter { it.seasonNumber > 0 }
+                if (availableSeasons.any { it.seasonNumber == lastWatched.first }) {
+                    currentSeason = lastWatched.first
+                } else {
+                    currentSeason = availableSeasons.firstOrNull()?.seasonNumber ?: 1
+                }
             }
         }
         try {
@@ -73,7 +92,7 @@ fun DetailsScreen(
     }
 
     // Sempre que trocar a temporada, busca os novos episódios e reseta a rolagem para o primeiro episódio
-    LaunchedEffect(item.id, currentSeason) {
+    LaunchedEffect(item.id, currentSeason, isTv) {
         if (isTv) {
             isLoadingEpisodes = true
             episodes = repository.getTvSeason(item.id, currentSeason)
@@ -180,9 +199,21 @@ fun DetailsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Progresso salvo no histórico (se houver)
-                val targetEpisode = if (isTv) lastWatched.second else 1
-                val savedPos = PlaybackHistoryManager.getPlaybackPosition(context, item.id, if (isTv) currentSeason else 0, if (isTv) targetEpisode else 0)
-                val savedDur = PlaybackHistoryManager.getPlaybackDuration(context, item.id, if (isTv) currentSeason else 0, if (isTv) targetEpisode else 0)
+                val targetEpisode = if (isTv) {
+                    if (currentSeason == lastWatched.first) lastWatched.second else 1
+                } else {
+                    0
+                }
+                val targetSeason = if (isTv) currentSeason else 0
+                var savedPos by remember(item.id, targetSeason, targetEpisode) {
+                    mutableStateOf(PlaybackHistoryManager.getPlaybackPosition(context, item.id, targetSeason, targetEpisode))
+                }
+                var savedDur by remember(item.id, targetSeason, targetEpisode) {
+                    mutableStateOf(PlaybackHistoryManager.getPlaybackDuration(context, item.id, targetSeason, targetEpisode))
+                }
+                var inContinueWatching by remember(item.id) {
+                    mutableStateOf(PlaybackHistoryManager.isInContinueWatching(context, item.id))
+                }
                 val hasProgress = savedPos > 5000L
 
                 if (hasProgress) {
@@ -212,7 +243,10 @@ fun DetailsScreen(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     NeoButton(
                         text = when {
                             hasProgress -> "[ CONTINUAR // ${formatTime(savedPos)} ]"
@@ -220,7 +254,7 @@ fun DetailsScreen(
                             else -> "[ ASSISTIR AGORA ]"
                         },
                         onClick = {
-                            onPlayVideo(currentSeason, targetEpisode, null)
+                            onPlayVideo(targetSeason, targetEpisode, null)
                         },
                         variant = NeoButtonVariant.Primary,
                         modifier = Modifier.focusRequester(playButtonFocusRequester)
@@ -231,7 +265,23 @@ fun DetailsScreen(
                             text = "[ DO INÍCIO ]",
                             onClick = {
                                 PlaybackHistoryManager.clearPlaybackPosition(context, item.id)
-                                onPlayVideo(currentSeason, targetEpisode, null)
+                                savedPos = 0L
+                                savedDur = 0L
+                                inContinueWatching = false
+                                onPlayVideo(targetSeason, targetEpisode, null)
+                            },
+                            variant = NeoButtonVariant.Secondary
+                        )
+                    }
+
+                    if (inContinueWatching || hasProgress) {
+                        NeoButton(
+                            text = "[ EXCLUIR DO CONTINUAR ASSISTINDO ]",
+                            onClick = {
+                                PlaybackHistoryManager.clearPlaybackPosition(context, item.id)
+                                savedPos = 0L
+                                savedDur = 0L
+                                inContinueWatching = false
                             },
                             variant = NeoButtonVariant.Secondary
                         )
@@ -253,10 +303,11 @@ fun DetailsScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     LazyRow(
+                        state = seasonsRowState,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(start = 2.dp, end = 32.dp, top = 2.dp, bottom = 6.dp)
+                        contentPadding = PaddingValues(start = 2.dp, end = 52.dp, top = 2.dp, bottom = 6.dp)
                     ) {
-                        items(seasons) { s ->
+                        itemsIndexed(seasons) { index, s ->
                             val isSelected = (s.seasonNumber == currentSeason)
                             NeoPillButton(
                                 text = "TEMP ${s.seasonNumber}",
@@ -266,6 +317,14 @@ fun DetailsScreen(
                                         currentSeason = s.seasonNumber
                                         coroutineScope.launch {
                                             episodesRowState.scrollToItem(0, 0)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.onFocusChanged {
+                                    if (it.isFocused) {
+                                        coroutineScope.launch {
+                                            val targetIndex = (index - 2).coerceAtLeast(0)
+                                            seasonsRowState.animateScrollToItem(targetIndex)
                                         }
                                     }
                                 }
@@ -316,9 +375,9 @@ fun DetailsScreen(
                         LazyRow(
                             state = episodesRowState,
                             horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(start = 4.dp, end = 48.dp, top = 8.dp, bottom = 20.dp)
+                            contentPadding = PaddingValues(start = 4.dp, end = 64.dp, top = 8.dp, bottom = 20.dp)
                         ) {
-                            items(episodes, key = { it.id }) { ep ->
+                            itemsIndexed(episodes, key = { _, ep -> ep.id }) { index, ep ->
                                 NeoEpisodeCard(
                                     episodeNumber = ep.episodeNumber,
                                     name = ep.name.ifBlank { "Episódio ${ep.episodeNumber}" },
@@ -326,6 +385,14 @@ fun DetailsScreen(
                                     runtimeMinutes = ep.runtime,
                                     onClick = {
                                         onPlayVideo(currentSeason, ep.episodeNumber, ep.name)
+                                    },
+                                    modifier = Modifier.onFocusChanged {
+                                        if (it.isFocused) {
+                                            coroutineScope.launch {
+                                                val targetIndex = (index - 2).coerceAtLeast(0)
+                                                episodesRowState.animateScrollToItem(targetIndex)
+                                            }
+                                        }
                                     }
                                 )
                             }

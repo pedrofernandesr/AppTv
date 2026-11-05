@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material.icons.Icons
@@ -53,6 +55,7 @@ fun HomeScreen(
     val coroutineScope = rememberCoroutineScope()
     val state by viewModel.uiState.collectAsState()
     val playButtonFocusRequester = remember { FocusRequester() }
+    val continueWatchingRowState = rememberLazyListState()
 
     var isBannerFocused by remember { mutableStateOf(true) }
     var activeFilter by remember { mutableStateOf("INICIO") }
@@ -155,8 +158,8 @@ fun HomeScreen(
     }
 
     val filteredWatching = when (activeFilter) {
-        "FILMES" -> continueWatching.filter { it.mediaType != "tv" }
-        "SERIES" -> continueWatching.filter { it.mediaType == "tv" }
+        "FILMES" -> continueWatching.filter { !it.isTv }
+        "SERIES" -> continueWatching.filter { it.isTv }
         else -> continueWatching
     }
     val hasContinueWatching = filteredWatching.isNotEmpty()
@@ -302,7 +305,7 @@ fun HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             NeoBadge(text = currentFeatured.year)
-                            NeoBadge(text = if (currentFeatured.mediaType == "tv") "SÉRIE" else "FILME")
+                            NeoBadge(text = if (currentFeatured.isTv) "SÉRIE" else "FILME")
                             NeoRatingBar(voteAverage = currentFeatured.voteAverage)
                         }
 
@@ -340,9 +343,9 @@ fun HomeScreen(
                         }
                     ) {
                         NeoButton(
-                            text = "[ ASSISTIR AGORA ]",
+                            text = if (currentFeatured.isTv) "[ ASSISTIR SÉRIE ]" else "[ ASSISTIR AGORA ]",
                             onClick = {
-                                val lastWatched = PlaybackHistoryManager.getLastWatchedEpisode(context, currentFeatured.id)
+                                val lastWatched = if (currentFeatured.isTv) PlaybackHistoryManager.getLastWatchedEpisode(context, currentFeatured.id) else Pair(0, 0)
                                 onPlayVideo(currentFeatured, lastWatched.first, lastWatched.second)
                             },
                             variant = NeoButtonVariant.Primary,
@@ -420,14 +423,15 @@ fun HomeScreen(
                             modifier = Modifier.padding(horizontal = NeoDimens.SafeH, vertical = 6.dp)
                         )
                         LazyRow(
-                            contentPadding = PaddingValues(start = NeoDimens.SafeH, end = NeoDimens.SafeH + 24.dp, top = 6.dp, bottom = 12.dp),
+                            state = continueWatchingRowState,
+                            contentPadding = PaddingValues(start = NeoDimens.SafeH, end = NeoDimens.SafeH + 36.dp, top = 6.dp, bottom = 12.dp),
                             horizontalArrangement = Arrangement.spacedBy(NeoDimens.Gap)
                         ) {
-                            items(filteredWatching, key = { "cw_${it.id}" }) { cw ->
+                            itemsIndexed(filteredWatching, key = { _, cw -> "cw_${cw.id}" }) { index, cw ->
                                 NeoContinueWatchingCard(
                                     item = cw,
                                     onClick = {
-                                        onPlayVideo(cw.toTmdbItem(), cw.season, cw.episode)
+                                        onPlayVideo(cw.toTmdbItem(), if (cw.isTv) cw.season else 0, if (cw.isTv) cw.episode else 0)
                                     },
                                     modifier = Modifier
                                         .focusProperties { up = playButtonFocusRequester }
@@ -435,6 +439,8 @@ fun HomeScreen(
                                             if (it.isFocused) {
                                                 isBannerFocused = false
                                                 coroutineScope.launch {
+                                                    val targetIndex = (index - 2).coerceAtLeast(0)
+                                                    continueWatchingRowState.animateScrollToItem(targetIndex)
                                                     viewModel.listState.scrollToItem(0, 0)
                                                 }
                                             }
@@ -451,7 +457,7 @@ fun HomeScreen(
                 item(key = "row_trending") {
                     CatalogRow(
                         title = "EM ALTA // SEMANA",
-                        items = if (activeFilter == "FILMES") state.trending.filter { it.mediaType != "tv" } else state.trending,
+                        items = if (activeFilter == "FILMES") state.trending.filter { !it.isTv } else state.trending,
                         state = viewModel.trendingRowState,
                         upFocusRequester = if (isFirstCatalogRow) playButtonFocusRequester else null,
                         isFirstRow = isFirstCatalogRow,
@@ -566,10 +572,10 @@ private fun CatalogRow(
 
         LazyRow(
             state = state,
-            contentPadding = PaddingValues(start = NeoDimens.SafeH, end = NeoDimens.SafeH + 24.dp, top = 6.dp, bottom = 12.dp),
+            contentPadding = PaddingValues(start = NeoDimens.SafeH, end = NeoDimens.SafeH + 36.dp, top = 6.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(NeoDimens.Gap)
         ) {
-            items(items, key = { it.id }) { item ->
+            itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
                 NeoPosterCard(
                     posterUrl = item.fullPosterUrl,
                     title = item.displayTitle,
@@ -584,6 +590,8 @@ private fun CatalogRow(
                             if (it.isFocused) {
                                 onItemFocused(item)
                                 coroutineScope?.launch {
+                                    val targetIndex = (index - 2).coerceAtLeast(0)
+                                    state.animateScrollToItem(targetIndex)
                                     if (isFirstRow && listState != null) {
                                         listState.scrollToItem(0, 0)
                                     } else {

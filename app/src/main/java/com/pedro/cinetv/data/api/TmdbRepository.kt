@@ -34,7 +34,7 @@ class TmdbRepository(private val api: TmdbApi = TmdbClient.api) {
     suspend fun getTrending(): List<TmdbItem> = withContext(Dispatchers.IO) {
         if (!hasApiKey) return@withContext mockTrending()
         try {
-            api.getTrending().results
+            api.getTrending().results.map { if (it.isTv) it.copy(mediaType = "tv") else it.copy(mediaType = "movie") }
         } catch (e: Exception) {
             mockTrending()
         }
@@ -43,7 +43,7 @@ class TmdbRepository(private val api: TmdbApi = TmdbClient.api) {
     suspend fun getPopularMovies(): List<TmdbItem> = withContext(Dispatchers.IO) {
         if (!hasApiKey) return@withContext mockMovies()
         try {
-            api.getPopularMovies().results
+            api.getPopularMovies().results.map { it.copy(mediaType = "movie") }
         } catch (e: Exception) {
             mockMovies()
         }
@@ -52,7 +52,7 @@ class TmdbRepository(private val api: TmdbApi = TmdbClient.api) {
     suspend fun getPopularTv(): List<TmdbItem> = withContext(Dispatchers.IO) {
         if (!hasApiKey) return@withContext mockSeries()
         try {
-            api.getPopularTv().results
+            api.getPopularTv().results.map { it.copy(mediaType = "tv") }
         } catch (e: Exception) {
             mockSeries()
         }
@@ -61,7 +61,7 @@ class TmdbRepository(private val api: TmdbApi = TmdbClient.api) {
     suspend fun getNowPlaying(): List<TmdbItem> = withContext(Dispatchers.IO) {
         if (!hasApiKey) return@withContext mockNowPlaying()
         try {
-            api.getNowPlayingMovies().results
+            api.getNowPlayingMovies().results.map { it.copy(mediaType = "movie") }
         } catch (e: Exception) {
             mockNowPlaying()
         }
@@ -70,7 +70,7 @@ class TmdbRepository(private val api: TmdbApi = TmdbClient.api) {
     suspend fun getTopRated(): List<TmdbItem> = withContext(Dispatchers.IO) {
         if (!hasApiKey) return@withContext mockTopRated()
         try {
-            api.getTopRatedMovies().results
+            api.getTopRatedMovies().results.map { it.copy(mediaType = "movie") }
         } catch (e: Exception) {
             mockTopRated()
         }
@@ -83,7 +83,7 @@ class TmdbRepository(private val api: TmdbApi = TmdbClient.api) {
                 .filter { it.displayTitle.contains(query, ignoreCase = true) }
         }
         try {
-            api.searchMulti(query).results
+            api.searchMulti(query).results.map { if (it.isTv) it.copy(mediaType = "tv") else it.copy(mediaType = "movie") }
         } catch (e: Exception) {
             emptyList()
         }
