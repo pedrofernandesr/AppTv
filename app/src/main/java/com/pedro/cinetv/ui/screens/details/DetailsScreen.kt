@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -48,8 +50,11 @@ fun DetailsScreen(
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { TmdbRepository() }
     val playButtonFocusRequester = remember { FocusRequester() }
+    val detailsListState = rememberLazyListState()
     val episodesRowState = rememberLazyListState()
     val seasonsRowState = rememberLazyListState()
+    val seasonsBringIntoView = remember { BringIntoViewRequester() }
+    val episodesBringIntoView = remember { BringIntoViewRequester() }
 
     var isTv by remember(item.id) { mutableStateOf(item.isTv) }
     val lastWatched = remember(item.id, isTv) {
@@ -135,7 +140,8 @@ fun DetailsScreen(
         )
 
         LazyColumn(
-            contentPadding = PaddingValues(start = 52.dp, end = 52.dp, top = 24.dp, bottom = 80.dp),
+            state = detailsListState,
+            contentPadding = PaddingValues(start = 52.dp, end = 52.dp, top = 24.dp, bottom = 120.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             // CABEÇALHO COM BOTÃO VOLTAR
@@ -276,7 +282,7 @@ fun DetailsScreen(
 
                     if (inContinueWatching || hasProgress) {
                         NeoButton(
-                            text = "[ EXCLUIR DO CONTINUAR ASSISTINDO ]",
+                            text = "[ EXCLUIR DO HISTÓRICO ]",
                             onClick = {
                                 PlaybackHistoryManager.clearPlaybackPosition(context, item.id)
                                 savedPos = 0L
@@ -296,110 +302,123 @@ fun DetailsScreen(
                 val seasons = tvDetails?.seasons?.filter { it.seasonNumber > 0 } ?: listOf(TvSeasonInfo(seasonNumber = 1, name = "Temporada 1"))
 
                 item(key = "seasons_selector") {
-                    Text(
-                        text = "TEMPORADAS // ESCOLHA A TEMPORADA",
-                        style = NeoType.Section,
-                        color = NeoColors.TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    LazyRow(
-                        state = seasonsRowState,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(start = 2.dp, end = 52.dp, top = 2.dp, bottom = 6.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewRequester(seasonsBringIntoView)
+                            .padding(bottom = 24.dp)
                     ) {
-                        itemsIndexed(seasons) { index, s ->
-                            val isSelected = (s.seasonNumber == currentSeason)
-                            NeoPillButton(
-                                text = "TEMP ${s.seasonNumber}",
-                                isSelected = isSelected,
-                                onClick = {
-                                    if (currentSeason != s.seasonNumber) {
-                                        currentSeason = s.seasonNumber
-                                        coroutineScope.launch {
-                                            episodesRowState.scrollToItem(0, 0)
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.onFocusChanged {
-                                    if (it.isFocused) {
-                                        coroutineScope.launch {
-                                            val targetIndex = (index - 2).coerceAtLeast(0)
-                                            seasonsRowState.animateScrollToItem(targetIndex)
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                }
-
-                item(key = "episodes_header") {
-                    Text(
-                        text = "EPISÓDIOS // TEMPORADA $currentSeason",
-                        style = NeoType.Section,
-                        color = NeoColors.TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-
-                if (isLoadingEpisodes) {
-                    item(key = "episodes_loading") {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(150.dp)
-                        ) {
-                            CircularProgressIndicator(color = NeoColors.Yellow)
-                        }
-                    }
-                } else if (episodes.isEmpty()) {
-                    item(key = "episodes_empty") {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, NeoColors.BorderRest, RectangleShape)
-                                .background(NeoColors.Surface, RectangleShape)
-                                .padding(16.dp)
-                        ) {
-                            Text(
-                                text = "EPISÓDIOS CARREGANDO OU INDISPONÍVEIS.",
-                                style = NeoType.Badge,
-                                color = NeoColors.TextMuted
-                            )
-                        }
-                    }
-                } else {
-                    item(key = "episodes_row") {
+                        Text(
+                            text = "TEMPORADAS // ESCOLHA A TEMPORADA",
+                            style = NeoType.Section,
+                            color = NeoColors.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
                         LazyRow(
-                            state = episodesRowState,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            contentPadding = PaddingValues(start = 4.dp, end = 64.dp, top = 8.dp, bottom = 20.dp)
+                            state = seasonsRowState,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(start = 2.dp, end = 52.dp, top = 2.dp, bottom = 6.dp)
                         ) {
-                            itemsIndexed(episodes, key = { _, ep -> ep.id }) { index, ep ->
-                                NeoEpisodeCard(
-                                    episodeNumber = ep.episodeNumber,
-                                    name = ep.name.ifBlank { "Episódio ${ep.episodeNumber}" },
-                                    stillUrl = if (ep.fullStillUrl.isNotBlank()) ep.fullStillUrl else item.fullBackdropUrl,
-                                    runtimeMinutes = ep.runtime,
+                            itemsIndexed(seasons) { index, s ->
+                                val isSelected = (s.seasonNumber == currentSeason)
+                                NeoPillButton(
+                                    text = "TEMP ${s.seasonNumber}",
+                                    isSelected = isSelected,
                                     onClick = {
-                                        onPlayVideo(currentSeason, ep.episodeNumber, ep.name)
+                                        if (currentSeason != s.seasonNumber) {
+                                            currentSeason = s.seasonNumber
+                                            coroutineScope.launch {
+                                                episodesRowState.scrollToItem(0, 0)
+                                            }
+                                        }
                                     },
                                     modifier = Modifier.onFocusChanged {
                                         if (it.isFocused) {
                                             coroutineScope.launch {
                                                 val targetIndex = (index - 2).coerceAtLeast(0)
-                                                episodesRowState.animateScrollToItem(targetIndex)
+                                                seasonsRowState.animateScrollToItem(targetIndex)
+                                                seasonsBringIntoView.bringIntoView()
                                             }
                                         }
                                     }
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(32.dp))
                     }
                 }
+
+                item(key = "episodes_section") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewRequester(episodesBringIntoView)
+                            .padding(bottom = 60.dp)
+                    ) {
+                        Text(
+                            text = "EPISÓDIOS // TEMPORADA $currentSeason",
+                            style = NeoType.Section,
+                            color = NeoColors.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (isLoadingEpisodes) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(150.dp)
+                            ) {
+                                CircularProgressIndicator(color = NeoColors.Yellow)
+                            }
+                        } else if (episodes.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, NeoColors.BorderRest, RectangleShape)
+                                    .background(NeoColors.Surface, RectangleShape)
+                                    .padding(16.dp)
+                            ) {
+                                Text(
+                                    text = "EPISÓDIOS CARREGANDO OU INDISPONÍVEIS.",
+                                    style = NeoType.Badge,
+                                    color = NeoColors.TextMuted
+                                )
+                            }
+                        } else {
+                            LazyRow(
+                                state = episodesRowState,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                contentPadding = PaddingValues(start = 4.dp, end = 64.dp, top = 8.dp, bottom = 20.dp)
+                            ) {
+                                itemsIndexed(episodes, key = { _, ep -> ep.id }) { index, ep ->
+                                    NeoEpisodeCard(
+                                        episodeNumber = ep.episodeNumber,
+                                        name = ep.name.ifBlank { "Episódio ${ep.episodeNumber}" },
+                                        stillUrl = if (ep.fullStillUrl.isNotBlank()) ep.fullStillUrl else item.fullBackdropUrl,
+                                        runtimeMinutes = ep.runtime,
+                                        onClick = {
+                                            onPlayVideo(currentSeason, ep.episodeNumber, ep.name)
+                                        },
+                                        modifier = Modifier.onFocusChanged {
+                                            if (it.isFocused) {
+                                                coroutineScope.launch {
+                                                    val targetIndex = (index - 2).coerceAtLeast(0)
+                                                    episodesRowState.animateScrollToItem(targetIndex)
+                                                    episodesBringIntoView.bringIntoView()
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Espaçamento generoso no rodapé para garantir que o foco no último item nunca encoste na borda inferior da TV
+            item(key = "details_footer_breathing_space") {
+                Spacer(modifier = Modifier.height(140.dp))
             }
         }
     }

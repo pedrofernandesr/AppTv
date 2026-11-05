@@ -535,7 +535,7 @@ fun HomeScreen(
 
             // Espaçamento inferior generoso para garantir que a última fileira não encoste na borda inferior da TV
             item(key = "footer_breathing_space") {
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(100.dp))
             }
         }
     }
