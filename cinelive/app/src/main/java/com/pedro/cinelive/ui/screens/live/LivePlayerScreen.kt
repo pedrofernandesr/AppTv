@@ -47,9 +47,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -202,6 +204,28 @@ fun LivePlayerScreen(
             Log.d("CineLivePlayer", "DIRECT_M3U8 configurado: lifecycle.isAtLeast(STARTED)=$isStarted, currentState=${lifecycleOwner.lifecycle.currentState}, playWhenReady=${exoPlayer.playWhenReady}, isPlaying=${exoPlayer.isPlaying}")
             if (isStarted) {
                 exoPlayer.play()
+            }
+            if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                launch {
+                    delay(8000)
+                    val window = Timeline.Window()
+                    val windowStart = if (!exoPlayer.currentTimeline.isEmpty) {
+                        exoPlayer.currentTimeline.getWindow(exoPlayer.currentMediaItemIndex, window).windowStartTimeMs
+                    } else -1L
+                    val pos = exoPlayer.currentPosition
+                    val rendered = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1
+                    val absPos = if (windowStart > 0) windowStart + pos else pos
+                    Log.d("CineLiveMetrics", "[DIRECT_M3U8] t=8s canal=${currentChannel?.name}: posMs=$pos, windowStartMs=$windowStart, absolutePosMs=$absPos, renderedBuffers=$rendered, isPlaying=${exoPlayer.isPlaying}")
+
+                    delay(4000)
+                    val windowStart12 = if (!exoPlayer.currentTimeline.isEmpty) {
+                        exoPlayer.currentTimeline.getWindow(exoPlayer.currentMediaItemIndex, window).windowStartTimeMs
+                    } else -1L
+                    val pos12 = exoPlayer.currentPosition
+                    val rendered12 = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1
+                    val absPos12 = if (windowStart12 > 0) windowStart12 + pos12 else pos12
+                    Log.d("CineLiveMetrics", "[DIRECT_M3U8] t=12s canal=${currentChannel?.name}: posMs=$pos12, windowStartMs=$windowStart12, absolutePosMs=$absPos12, renderedBuffers=$rendered12, isPlaying=${exoPlayer.isPlaying}")
+                }
             }
         } else {
             exoPlayer.stop()
