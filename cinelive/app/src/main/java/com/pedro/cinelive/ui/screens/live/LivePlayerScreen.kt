@@ -163,14 +163,14 @@ fun LivePlayerScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
-                    Log.d("CineLiveLifecycle", "ON_START recebido: retomando playback (ExoPlayer playWhenReady=true, WebView.onResume())")
                     exoPlayer.playWhenReady = true
                     activeWebView?.onResume()
+                    Log.d("CineLiveLifecycle", "ON_START recebido: retomando playback (ExoPlayer isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady}, WebView.onResume())")
                 }
                 Lifecycle.Event.ON_STOP -> {
-                    Log.d("CineLiveLifecycle", "ON_STOP recebido: pausando playback (ExoPlayer playWhenReady=false, WebView.onPause())")
                     exoPlayer.playWhenReady = false
                     activeWebView?.onPause()
+                    Log.d("CineLiveLifecycle", "ON_STOP recebido: pausando playback (ExoPlayer isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady}, WebView.onPause())")
                 }
                 else -> {}
             }
@@ -185,6 +185,10 @@ fun LivePlayerScreen(
     LaunchedEffect(currentStream) {
         val stream = currentStream
         exoPlayerError = null
+        if (stream != null) {
+            val host = runCatching { java.net.URI(stream.url).host }.getOrNull() ?: "desconhecido"
+            Log.d("CineLivePlayer", "Stream carregado: tipo=${stream.type}, host=$host, url=${stream.url}")
+        }
         if (stream != null && stream.type == StreamType.DIRECT_M3U8) {
             if (stream.headers.isNotEmpty()) {
                 httpDataSourceFactory.setDefaultRequestProperties(stream.headers)
@@ -194,7 +198,9 @@ fun LivePlayerScreen(
             val mediaItem = MediaItem.fromUri(stream.url)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
-            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            val isStarted = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            Log.d("CineLivePlayer", "DIRECT_M3U8 configurado: lifecycle.isAtLeast(STARTED)=$isStarted, currentState=${lifecycleOwner.lifecycle.currentState}, playWhenReady=${exoPlayer.playWhenReady}, isPlaying=${exoPlayer.isPlaying}")
+            if (isStarted) {
                 exoPlayer.play()
             }
         } else {
@@ -314,6 +320,8 @@ fun LivePlayerScreen(
 
                                         // Se já estiver reproduzindo, garante unmute antes do return, sem clicar em botões!
                                         if (isPlaying) {
+                                            var mutedBefore = (vids.length > 0 ? vids[0].muted : false);
+                                            console.log("[DPAD_CENTER] Estado ANTES de desmutar: muted=" + mutedBefore + ", paused=" + (vids.length > 0 ? vids[0].paused : false));
                                             for (var m = 0; m < vids.length; m++) {
                                                 vids[m].muted = false;
                                             }
