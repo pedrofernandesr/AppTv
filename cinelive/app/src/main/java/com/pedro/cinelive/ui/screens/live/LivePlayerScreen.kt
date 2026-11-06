@@ -457,6 +457,7 @@ fun LivePlayerScreen(
                                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                                 if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
                                     onPause()
+                                    Log.d("CineLiveWeb", "WebView criada em background: onPause() executado")
                                 }
                                 try {
                                     if (com.pedro.cinelive.BuildConfig.DEBUG) {

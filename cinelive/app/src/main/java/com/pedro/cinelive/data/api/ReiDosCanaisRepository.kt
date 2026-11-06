@@ -416,7 +416,7 @@ class ReiDosCanaisRepository(
         }
 
         val embed = channel.embeds.firstOrNull()
-        val embedUrl = embed?.embedUrl ?: "https://rdcanais.org/${channel.id}"
+        val embedUrl = embed?.embedUrl?.ifBlank { null } ?: "https://rdcanais.org/${channel.id}"
 
         // Se for canal do Rei dos Embeds (v1.rdembed.lat)
         if (embedUrl.contains("rdembed.lat", ignoreCase = true) || embedUrl.contains("reidosembeds", ignoreCase = true)) {
@@ -502,10 +502,17 @@ class ReiDosCanaisRepository(
                                 streamCache[channelKey] = res
                                 return@withContext res
                             }
-                            Log.d(TAG, "Player interno direcionado para WebView TV: $iframeSrc")
+                            val targetUrl = if (iframeSrc.contains("mastruzcomleite", ignoreCase = true) ||
+                                iframeSrc.contains("dadinho", ignoreCase = true) ||
+                                iframeSrc.contains("pqpstream", ignoreCase = true)) {
+                                embedUrl
+                            } else {
+                                iframeSrc
+                            }
+                            Log.d(TAG, "Player interno direcionado para WebView TV: $targetUrl (iframeSrc=$iframeSrc)")
                             val res = ResolvedStream(
                                 type = StreamType.WEB_EMBED,
-                                url = iframeSrc
+                                url = targetUrl
                             )
                             streamCache[channelKey] = res
                             return@withContext res
