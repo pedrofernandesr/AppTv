@@ -11,8 +11,8 @@ object NeoDimens {
     val StripeAccent = 4.dp
     val ShadowFocus = 4.dp
 
-    val DrawerW = 340.dp
-    val ChannelCardH = 68.dp
+    val DrawerW = 390.dp
+    val ChannelCardH = 70.dp
     val ButtonH = 44.dp
     val Gap = 12.dp
     val Gap2 = 20.dp
@@ -21,6 +21,6 @@ object NeoDimens {
 object NeoMotion {
     const val FocusMs = 150
     const val PressMs = 90
-    const val CardScale = 1.04f
-    const val ButtonScale = 1.03f
+    const val CardScale = 1.0f
+    const val ButtonScale = 1.0f
 }

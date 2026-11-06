@@ -3,6 +3,7 @@ package com.pedro.cinelive.data.api
 import com.pedro.cinelive.data.model.CategoriesResponse
 import com.pedro.cinelive.data.model.ChannelsResponse
 import com.pedro.cinelive.data.model.SportsResponse
+import com.pedro.cinelive.data.model.ReiDosEmbedsResponse
 import retrofit2.http.GET
 import retrofit2.http.Query
 
@@ -20,4 +21,10 @@ interface ReiDosCanaisApi {
     suspend fun getSports(
         @Query("status") status: String = "live"
     ): SportsResponse
+}
+
+interface ReiDosEmbedsApi {
+
+    @GET("api/channels")
+    suspend fun getChannels(): ReiDosEmbedsResponse
 }

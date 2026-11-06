@@ -492,7 +492,16 @@ fun LivePlayerScreen(
                                 val stream = currentStream
                                 if (stream != null && stream.type == StreamType.WEB_EMBED) {
                                     tag = stream.url
-                                    val headers = mapOf("Referer" to "https://rdcanais.org/")
+                                    val headers = if (stream.headers.isNotEmpty()) {
+                                        stream.headers
+                                    } else if (stream.url.contains("rdembed", ignoreCase = true)) {
+                                        mapOf(
+                                            "Referer" to "https://reidosembeds.lat/",
+                                            "Origin" to "https://reidosembeds.lat"
+                                        )
+                                    } else {
+                                        mapOf("Referer" to "https://rdcanais.org/")
+                                    }
                                     loadUrl(stream.url, headers)
                                 }
                             }
@@ -503,7 +512,16 @@ fun LivePlayerScreen(
                                 val url = stream.url
                                 if (webView.tag != url) {
                                     webView.tag = url
-                                    val headers = mapOf("Referer" to "https://rdcanais.org/")
+                                    val headers = if (stream.headers.isNotEmpty()) {
+                                        stream.headers
+                                    } else if (stream.url.contains("rdembed", ignoreCase = true)) {
+                                        mapOf(
+                                            "Referer" to "https://reidosembeds.lat/",
+                                            "Origin" to "https://reidosembeds.lat"
+                                        )
+                                    } else {
+                                        mapOf("Referer" to "https://rdcanais.org/")
+                                    }
                                     webView.loadUrl(url, headers)
                                 }
                             }
@@ -674,6 +692,7 @@ fun LivePlayerScreen(
                 LazyColumn(
                     state = channelListState,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 20.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     items(channels, key = { it.id }) { ch ->

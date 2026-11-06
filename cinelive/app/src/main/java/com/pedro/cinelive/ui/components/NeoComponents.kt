@@ -46,19 +46,10 @@ fun NeoCard(
     content: @Composable BoxScope.() -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) NeoMotion.CardScale else 1f,
-        animationSpec = tween(NeoMotion.FocusMs),
-        label = "neoCardScale"
-    )
 
     Box(
         modifier = modifier
             .zIndex(if (isFocused) 1f else 0f)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
             .drawBehind {
                 if (isFocused) {
                     drawRect(
@@ -69,7 +60,7 @@ fun NeoCard(
                 }
             }
             .background(
-                if (isFocused) NeoColors.SurfaceFocused else if (isSelected) NeoColors.Surface else NeoColors.Bg,
+                if (isFocused) NeoColors.Yellow else if (isSelected) NeoColors.SurfaceFocused else NeoColors.Surface,
                 RectangleShape
             )
             .border(
@@ -109,12 +100,12 @@ fun NeoChannelCard(
                 .fillMaxSize()
                 .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
-            // Logotipo do canal
+            // Logotipo do canal em container escuro com contraste
             Box(
                 modifier = Modifier
-                    .size(52.dp, 40.dp)
-                    .background(Color.Black, RectangleShape)
-                    .border(1.dp, if (isFocused) NeoColors.Yellow else NeoColors.BorderRest, RectangleShape)
+                    .size(56.dp, 44.dp)
+                    .background(Color(0xFF161C2C), RectangleShape)
+                    .border(1.dp, if (isFocused) NeoColors.Navy else NeoColors.BorderRest, RectangleShape)
                     .padding(4.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -122,7 +113,7 @@ fun NeoChannelCard(
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
                             .data(channel.logoUrl)
-                            .crossfade(100)
+                            .size(160, 120)
                             .build(),
                         contentDescription = channel.name,
                         contentScale = ContentScale.Fit,
@@ -132,7 +123,7 @@ fun NeoChannelCard(
                     Text(
                         text = channel.name.take(3).uppercase(),
                         style = NeoType.Badge,
-                        color = NeoColors.Yellow
+                        color = if (isFocused) NeoColors.Navy else NeoColors.Yellow
                     )
                 }
             }
@@ -148,7 +139,7 @@ fun NeoChannelCard(
                     Text(
                         text = channel.name.uppercase(),
                         style = NeoType.CardTitle,
-                        color = if (isFocused) NeoColors.Yellow else NeoColors.TextPrimary,
+                        color = if (isFocused) NeoColors.Navy else NeoColors.TextPrimary,
                         maxLines = 1
                     )
                     if (isCurrent) {
@@ -171,7 +162,7 @@ fun NeoChannelCard(
                 Text(
                     text = activeEpg.title,
                     style = NeoType.EpgTime,
-                    color = NeoColors.TextSecondary,
+                    color = if (isFocused) NeoColors.Navy.copy(alpha = 0.85f) else NeoColors.TextSecondary,
                     maxLines = 1
                 )
             }
@@ -410,12 +401,12 @@ fun NeoCatalogCard(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Área superior: Logo e Badges
+            // Área superior: Logo e Badges em container contrastante
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(86.dp)
-                    .background(Color.Black, RectangleShape)
+                    .background(Color(0xFF161C2C), RectangleShape)
                     .border(1.dp, if (isFocused) NeoColors.Yellow else NeoColors.BorderRest, RectangleShape)
                     .padding(6.dp),
                 contentAlignment = Alignment.Center
@@ -424,7 +415,7 @@ fun NeoCatalogCard(
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
                             .data(channel.logoUrl)
-                            .crossfade(100)
+                            .size(240, 140)
                             .build(),
                         contentDescription = channel.name,
                         contentScale = ContentScale.Fit,
@@ -512,13 +503,13 @@ fun NeoCatalogGridOverlay(
             .border(4.dp, NeoColors.Yellow, RectangleShape)
             .padding(horizontal = 32.dp, vertical = 24.dp)
     ) {
-        // Cabeçalho da Grade
+        // Cabeçalho da Grade sem sobreposição de textos
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "CINELIVE // GRADE COMPLETA DE CANAIS",
                     style = NeoType.Section,

@@ -15,6 +15,7 @@ import java.util.regex.Pattern
 
 class ReiDosCanaisRepository(
     private val api: ReiDosCanaisApi,
+    private val embedsApi: ReiDosEmbedsApi,
     private val okHttpClient: OkHttpClient
 ) {
 
@@ -95,8 +96,8 @@ class ReiDosCanaisRepository(
             }
 
             val client = OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
+                .connectTimeout(25, TimeUnit.SECONDS)
+                .readTimeout(25, TimeUnit.SECONDS)
                 .addInterceptor(logging)
                 .addInterceptor { chain ->
                     val request = chain.request().newBuilder()
@@ -114,34 +115,60 @@ class ReiDosCanaisRepository(
                 .build()
 
             val api = retrofit.create(ReiDosCanaisApi::class.java)
-            return ReiDosCanaisRepository(api, client)
+
+            val embedsRetrofit = Retrofit.Builder()
+                .baseUrl("https://reidosembeds.lat/")
+                .client(client)
+                .addConverterFactory(GsonConverterFactory.create())
+                .build()
+
+            val embedsApi = embedsRetrofit.create(ReiDosEmbedsApi::class.java)
+
+            return ReiDosCanaisRepository(api, embedsApi, client)
         }
     }
 
     suspend fun fetchCategories(): Result<List<CategoryItem>> = withContext(Dispatchers.IO) {
+        val baseCategories = mutableListOf<CategoryItem>()
         try {
             val response = api.getCategories()
             if (response.success && response.data.isNotEmpty()) {
-                return@withContext Result.success(response.data)
+                baseCategories.addAll(response.data)
             }
         } catch (e: Exception) {
             Log.w(TAG, "API de categorias offline, usando catálogo embarcado local", e)
         }
 
         // Fallback para arquivo local embutido em assets
-        try {
-            val assetManager = com.pedro.cinelive.CineLiveApp.appContext.assets
-            val json = assetManager.open("default_categories.json").bufferedReader().use { it.readText() }
-            val fallbackResp = com.google.gson.Gson().fromJson(json, com.pedro.cinelive.data.model.CategoriesResponse::class.java)
-            if (fallbackResp.success && fallbackResp.data.isNotEmpty()) {
-                Log.d(TAG, "Categorias recuperadas com sucesso do backup local (${fallbackResp.data.size} categorias)")
-                return@withContext Result.success(fallbackResp.data)
+        if (baseCategories.isEmpty()) {
+            try {
+                val assetManager = com.pedro.cinelive.CineLiveApp.appContext.assets
+                val json = assetManager.open("default_categories.json").bufferedReader().use { it.readText() }
+                val fallbackResp = com.google.gson.Gson().fromJson(json, com.pedro.cinelive.data.model.CategoriesResponse::class.java)
+                if (fallbackResp.success && fallbackResp.data.isNotEmpty()) {
+                    Log.d(TAG, "Categorias recuperadas com sucesso do backup local (${fallbackResp.data.size} categorias)")
+                    baseCategories.addAll(fallbackResp.data)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Falha ao carregar categorias locais de fallback", e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Falha ao carregar categorias locais de fallback", e)
         }
 
-        Result.failure(Exception("Não foi possível carregar categorias"))
+        // Adiciona categorias complementares exclusivas (Realitys, etc.)
+        val knownNames = baseCategories.map { it.name.lowercase() }.toSet()
+        var nextId = 100
+        val extraCategories = listOf("Realitys", "Séries", "Variedades")
+        for (extra in extraCategories) {
+            if (!knownNames.contains(extra.lowercase())) {
+                baseCategories.add(CategoryItem(id = nextId++, name = extra))
+            }
+        }
+
+        if (baseCategories.isNotEmpty()) {
+            Result.success(baseCategories)
+        } else {
+            Result.failure(Exception("Não foi possível carregar categorias"))
+        }
     }
 
     suspend fun fetchChannels(category: String? = null): Result<List<ChannelItem>> = withContext(Dispatchers.IO) {
@@ -157,8 +184,8 @@ class ReiDosCanaisRepository(
             loadLocalChannelsFallback(category)
         }
 
+        val expandedList = mutableListOf<ChannelItem>()
         if (rawChannels.isNotEmpty()) {
-            val expandedList = mutableListOf<ChannelItem>()
             for (channel in rawChannels) {
                 if (channel.id.equals("globo", ignoreCase = true) && channel.embeds.size > 1) {
                     // Expande as afiliadas regionais da Globo (incluindo Globo Maranhão, SP, RJ, etc.)
@@ -178,6 +205,72 @@ class ReiDosCanaisRepository(
                     expandedList.add(channel)
                 }
             }
+        }
+
+        // Adiciona apenas canais EXCLUSIVOS do Rei dos Embeds (sem duplicar nenhum canal do Rei dos Canais)
+        try {
+            val existingIds = expandedList.map { it.id.lowercase().replace("-", "").replace("_", "") }.toSet()
+            val embedsResp = embedsApi.getChannels()
+            if (embedsResp.success && embedsResp.data.isNotEmpty()) {
+                val exclusive = embedsResp.data
+                    .filter { it.isActive }
+                    .filter { ch ->
+                        val norm = ch.id.lowercase().replace("-", "").replace("_", "")
+                        !existingIds.contains(norm)
+                    }
+                    .map { ch ->
+                        val nextProg = ch.nextProgrammes?.firstOrNull()
+                        val epgItem = if (!ch.nowPlayingTitle.isNullOrBlank()) {
+                            ChannelEpg(
+                                current = EpgProgram(
+                                    title = ch.nowPlayingTitle,
+                                    formattedTime = "Ao Vivo",
+                                    endTime = nextProg?.startTimestamp ?: (System.currentTimeMillis() / 1000 + 3600)
+                                ),
+                                next = if (nextProg != null) EpgProgram(
+                                    title = nextProg.title,
+                                    startTime = nextProg.startTimestamp,
+                                    endTime = nextProg.endTimestamp
+                                ) else null
+                            )
+                        } else null
+
+                        ChannelItem(
+                            id = ch.id,
+                            name = ch.name,
+                            description = ch.description,
+                            logoUrl = ch.logoUrl,
+                            category = ch.category ?: "Variedades",
+                            embeds = listOf(
+                                ChannelEmbed(
+                                    provider = "Rei dos Embeds",
+                                    quality = "HD",
+                                    embedUrl = ch.embedUrl ?: "https://v1.rdembed.lat/${ch.id}"
+                                )
+                            ),
+                            epg = epgItem
+                        )
+                    }
+
+                if (category.isNullOrBlank()) {
+                    expandedList.addAll(exclusive)
+                } else {
+                    expandedList.addAll(exclusive.filter { it.category.equals(category, ignoreCase = true) })
+                }
+                Log.d(TAG, "Adicionados ${exclusive.size} canais complementares exclusivos sem duplicidade")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Falha de rede ao buscar canais do Rei dos Embeds, usando contingência local", e)
+            val fallbackExclusive = loadLocalExclusiveChannelsFallback(category)
+            if (fallbackExclusive.isNotEmpty()) {
+                val existingIds = expandedList.map { it.id.lowercase().replace("-", "").replace("_", "") }.toSet()
+                val filtered = fallbackExclusive.filter { !existingIds.contains(it.id.lowercase().replace("-", "").replace("_", "")) }
+                expandedList.addAll(filtered)
+                Log.d(TAG, "Adicionados ${filtered.size} canais complementares do backup local sem duplicidade")
+            }
+        }
+
+        if (expandedList.isNotEmpty()) {
             Result.success(expandedList)
         } else {
             Result.failure(Exception("Nenhum canal disponível no momento"))
@@ -198,6 +291,53 @@ class ReiDosCanaisRepository(
             } else emptyList()
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao carregar canais do backup local", e)
+            emptyList()
+        }
+    }
+
+    private fun loadLocalExclusiveChannelsFallback(category: String?): List<ChannelItem> {
+        return try {
+            val assetManager = com.pedro.cinelive.CineLiveApp.appContext.assets
+            val json = assetManager.open("exclusive_channels.json").bufferedReader().use { it.readText() }
+            val itemType = object : com.google.gson.reflect.TypeToken<List<ReiDosEmbedsChannelItem>>() {}.type
+            val channels: List<ReiDosEmbedsChannelItem> = com.google.gson.Gson().fromJson(json, itemType)
+            channels.filter { it.isActive }.map { ch ->
+                val nextProg = ch.nextProgrammes?.firstOrNull()
+                val epgItem = if (!ch.nowPlayingTitle.isNullOrBlank()) {
+                    ChannelEpg(
+                        current = EpgProgram(
+                            title = ch.nowPlayingTitle,
+                            formattedTime = "Ao Vivo",
+                            endTime = nextProg?.startTimestamp ?: (System.currentTimeMillis() / 1000 + 3600)
+                        ),
+                        next = if (nextProg != null) EpgProgram(
+                            title = nextProg.title,
+                            startTime = nextProg.startTimestamp,
+                            endTime = nextProg.endTimestamp
+                        ) else null
+                    )
+                } else null
+
+                ChannelItem(
+                    id = ch.id,
+                    name = ch.name,
+                    description = ch.description,
+                    logoUrl = ch.logoUrl,
+                    category = ch.category ?: "Variedades",
+                    embeds = listOf(
+                        ChannelEmbed(
+                            provider = "Rei dos Embeds",
+                            quality = "HD",
+                            embedUrl = ch.embedUrl ?: "https://v1.rdembed.lat/${ch.id}"
+                        )
+                    ),
+                    epg = epgItem
+                )
+            }.let { list ->
+                if (category.isNullOrBlank()) list else list.filter { it.category.equals(category, ignoreCase = true) }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Falha ao carregar canais complementares locais de fallback", e)
             emptyList()
         }
     }
@@ -247,6 +387,21 @@ class ReiDosCanaisRepository(
 
         val embed = channel.embeds.firstOrNull()
         val embedUrl = embed?.embedUrl ?: "https://rdcanais.org/${channel.id}"
+
+        // Se for canal do Rei dos Embeds (v1.rdembed.lat)
+        if (embedUrl.contains("rdembed.lat", ignoreCase = true) || embedUrl.contains("reidosembeds", ignoreCase = true)) {
+            Log.d(TAG, "Stream do Rei dos Embeds direcionado para WebView TV: $embedUrl")
+            val res = ResolvedStream(
+                type = StreamType.WEB_EMBED,
+                url = embedUrl,
+                headers = mapOf(
+                    "Referer" to "https://reidosembeds.lat/",
+                    "Origin" to "https://reidosembeds.lat"
+                )
+            )
+            streamCache[channelKey] = res
+            return@withContext res
+        }
 
         // Se a própria URL já for .m3u8
         if (embedUrl.endsWith(".m3u8", ignoreCase = true) || 
