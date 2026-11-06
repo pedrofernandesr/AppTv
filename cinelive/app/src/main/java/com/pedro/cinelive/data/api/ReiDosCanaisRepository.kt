@@ -143,7 +143,7 @@ class ReiDosCanaisRepository(
         if (baseCategories.isEmpty()) {
             try {
                 val assetManager = com.pedro.cinelive.CineLiveApp.appContext.assets
-                val json = assetManager.open("default_categories.json").bufferedReader().use { it.readText() }
+                val json = assetManager.open("default_categories.json").bufferedReader(Charsets.UTF_8).use { it.readText() }
                 val fallbackResp = com.google.gson.Gson().fromJson(json, com.pedro.cinelive.data.model.CategoriesResponse::class.java)
                 if (fallbackResp.success && fallbackResp.data.isNotEmpty()) {
                     Log.d(TAG, "Categorias recuperadas com sucesso do backup local (${fallbackResp.data.size} categorias)")
@@ -280,7 +280,7 @@ class ReiDosCanaisRepository(
     private fun loadLocalChannelsFallback(category: String?): List<ChannelItem> {
         return try {
             val assetManager = com.pedro.cinelive.CineLiveApp.appContext.assets
-            val json = assetManager.open("default_channels.json").bufferedReader().use { it.readText() }
+            val json = assetManager.open("default_channels.json").bufferedReader(Charsets.UTF_8).use { it.readText() }
             val fallbackResp = com.google.gson.Gson().fromJson(json, com.pedro.cinelive.data.model.ChannelsResponse::class.java)
             if (fallbackResp.success) {
                 if (category.isNullOrBlank()) {
@@ -298,7 +298,7 @@ class ReiDosCanaisRepository(
     private fun loadLocalExclusiveChannelsFallback(category: String?): List<ChannelItem> {
         return try {
             val assetManager = com.pedro.cinelive.CineLiveApp.appContext.assets
-            val json = assetManager.open("exclusive_channels.json").bufferedReader().use { it.readText() }
+            val json = assetManager.open("exclusive_channels.json").bufferedReader(Charsets.UTF_8).use { it.readText() }
             val itemType = object : com.google.gson.reflect.TypeToken<List<ReiDosEmbedsChannelItem>>() {}.type
             val channels: List<ReiDosEmbedsChannelItem> = com.google.gson.Gson().fromJson(json, itemType)
             channels.filter { it.isActive }.map { ch ->
