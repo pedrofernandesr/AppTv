@@ -99,7 +99,11 @@ class LiveViewModel(
                 _isLoading.value = false
 
                 if (autoPlayFirst && channelList.isNotEmpty() && _currentChannel.value == null) {
-                    selectChannel(channelList.first())
+                    val preferred = channelList.find { it.id.equals("sbt", ignoreCase = true) }
+                        ?: channelList.find { it.id.equals("tvcultura", ignoreCase = true) }
+                        ?: channelList.find { it.id.equals("globo", ignoreCase = true) }
+                        ?: channelList.first()
+                    selectChannel(preferred)
                 }
             } else {
                 _errorMessage.value = "Erro ao carregar canais de ${category.name}"

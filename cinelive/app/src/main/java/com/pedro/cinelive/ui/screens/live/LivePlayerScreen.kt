@@ -1,9 +1,12 @@
 package com.pedro.cinelive.ui.screens.live
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
+import android.util.Log
 import android.view.KeyEvent
 import android.view.ViewGroup
+import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -36,9 +39,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.compose.runtime.collectAsState
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.pedro.cinelive.data.model.StreamType
@@ -72,12 +78,31 @@ fun LivePlayerScreen(
     val drawerFocusRequester = remember { FocusRequester() }
     val channelListState = rememberLazyListState()
 
-    // Instância única de ExoPlayer
+    // Instância otimizada de ExoPlayer para HLS de alta estabilidade
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = true
-            repeatMode = Player.REPEAT_MODE_OFF
-        }
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(10000)
+            .setReadTimeoutMs(10000)
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(context)
+            .setDataSourceFactory(httpDataSourceFactory)
+
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build().apply {
+                playWhenReady = true
+                repeatMode = Player.REPEAT_MODE_OFF
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        Log.e("CineLivePlayer", "ExoPlayer error: ${error.errorCodeName} - ${error.message}", error)
+                    }
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        Log.d("CineLivePlayer", "ExoPlayer state: $playbackState (READY=${Player.STATE_READY})")
+                    }
+                })
+            }
     }
 
     DisposableEffect(exoPlayer) {
@@ -185,6 +210,8 @@ fun LivePlayerScreen(
                                 mediaPlaybackRequiresUserGesture = false
                                 loadWithOverviewMode = true
                                 useWideViewPort = true
+                                setSupportMultipleWindows(false)
+                                javaScriptCanOpenWindowsAutomatically = false
                                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                 userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                             }
@@ -192,8 +219,26 @@ fun LivePlayerScreen(
                                 override fun onPermissionRequest(request: PermissionRequest?) {
                                     request?.grant(request.resources)
                                 }
+                                override fun onGeolocationPermissionsShowPrompt(
+                                    origin: String?,
+                                    callback: GeolocationPermissions.Callback?
+                                ) {
+                                    callback?.invoke(origin, true, false)
+                                }
                             }
                             webViewClient = object : WebViewClient() {
+                                private val antiSandboxPolyfill = """
+                                    (function() {
+                                        try {
+                                            Object.defineProperty(document, 'domain', {
+                                                get: function() { return location.hostname; },
+                                                set: function(val) { return location.hostname; },
+                                                configurable: true
+                                            });
+                                        } catch (e) {}
+                                    })();
+                                """.trimIndent()
+
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                     val url = request?.url?.toString() ?: return false
                                     // Bloqueia esquemas externos e intents de lojas/anúncios
@@ -203,8 +248,14 @@ fun LivePlayerScreen(
                                     return false
                                 }
 
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    super.onPageStarted(view, url, favicon)
+                                    view?.evaluateJavascript(antiSandboxPolyfill, null)
+                                }
+
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
+                                    view?.evaluateJavascript(antiSandboxPolyfill, null)
                                     // Força o player e qualquer iframe a ocupar 100% da tela em tela cheia na TV
                                     view?.evaluateJavascript(
                                         """
