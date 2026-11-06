@@ -10,10 +10,13 @@ import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.io.ByteArrayInputStream
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
@@ -79,7 +82,11 @@ fun LivePlayerScreen(
     val drawerFocusRequester = remember { FocusRequester() }
     val channelListState = rememberLazyListState()
     var activeWebView by remember { mutableStateOf<WebView?>(null) }
-    var lastLoadedUrl by remember { mutableStateOf<String?>(null) }
+    var webViewError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(currentChannel) {
+        webViewError = null
+    }
 
     // Instância otimizada de ExoPlayer para HLS de alta estabilidade
     val exoPlayer = remember {
@@ -232,213 +239,277 @@ fun LivePlayerScreen(
                 )
             }
             StreamType.WEB_EMBED -> {
-                AndroidView(
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            activeWebView = this
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            setBackgroundColor(AndroidColor.BLACK)
-                            isFocusable = true
-                            isFocusableInTouchMode = true
-                            try {
-                                WebView.setWebContentsDebuggingEnabled(true)
-                                CookieManager.getInstance().setAcceptCookie(true)
-                                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                            } catch (e: Exception) {
-                                Log.w("CineLivePlayer", "Erro ao configurar cookies na WebView", e)
-                            }
-                            settings.apply {
-                                javaScriptEnabled = true
-                                domStorageEnabled = true
-                                databaseEnabled = true
-                                mediaPlaybackRequiresUserGesture = false
-                                loadWithOverviewMode = true
-                                useWideViewPort = true
-                                setSupportMultipleWindows(false)
-                                javaScriptCanOpenWindowsAutomatically = false
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                            }
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onPermissionRequest(request: PermissionRequest?) {
-                                    request?.grant(request.resources)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                activeWebView = this
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                setBackgroundColor(AndroidColor.BLACK)
+                                isFocusable = true
+                                isFocusableInTouchMode = true
+                                try {
+                                    WebView.setWebContentsDebuggingEnabled(true)
+                                    CookieManager.getInstance().setAcceptCookie(true)
+                                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                                } catch (e: Exception) {
+                                    Log.w("CineLivePlayer", "Erro ao configurar cookies na WebView", e)
                                 }
-                                override fun onGeolocationPermissionsShowPrompt(
-                                    origin: String?,
-                                    callback: GeolocationPermissions.Callback?
-                                ) {
-                                    callback?.invoke(origin, true, false)
+                                settings.apply {
+                                    javaScriptEnabled = true
+                                    domStorageEnabled = true
+                                    databaseEnabled = true
+                                    mediaPlaybackRequiresUserGesture = false
+                                    loadWithOverviewMode = true
+                                    useWideViewPort = true
+                                    cacheMode = WebSettings.LOAD_DEFAULT
+                                    setSupportMultipleWindows(false)
+                                    javaScriptCanOpenWindowsAutomatically = false
+                                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                    userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                                 }
-                                override fun onShowCustomView(view: android.view.View?, callback: CustomViewCallback?) {
-                                    callback?.onCustomViewHidden()
-                                }
-                                override fun onHideCustomView() {}
-                            }
-                            webViewClient = object : WebViewClient() {
-                                private val antiSandboxPolyfill = """
-                                    (function() {
-                                        try {
-                                            Object.defineProperty(document, 'domain', {
-                                                get: function() { return location.hostname; },
-                                                set: function(val) { return location.hostname; },
-                                                configurable: true
-                                            });
-                                        } catch (e) {}
-
-                                        // Polyfill Fullscreen API para impedir que o JWPlayer aborte a reprodução com "TypeError: Fullscreen is not supported"
-                                        var noop = function() { return Promise.resolve(); };
-                                        try {
-                                            if (typeof Element !== 'undefined') {
-                                                Element.prototype.requestFullscreen = noop;
-                                                Element.prototype.webkitRequestFullscreen = noop;
-                                                Element.prototype.webkitEnterFullscreen = noop;
-                                                Element.prototype.mozRequestFullScreen = noop;
-                                                Element.prototype.msRequestFullscreen = noop;
-                                            }
-                                            if (typeof HTMLVideoElement !== 'undefined') {
-                                                HTMLVideoElement.prototype.requestFullscreen = noop;
-                                                HTMLVideoElement.prototype.webkitRequestFullscreen = noop;
-                                                HTMLVideoElement.prototype.webkitEnterFullscreen = noop;
-                                            }
-                                            if (typeof Document !== 'undefined') {
-                                                document.exitFullscreen = noop;
-                                                document.webkitExitFullscreen = noop;
-                                                document.mozCancelFullScreen = noop;
-                                                document.msExitFullscreen = noop;
-                                            }
-                                        } catch(e) {}
-                                    })();
-                                """.trimIndent()
-
-                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                    val url = request?.url?.toString() ?: return false
-                                    // Bloqueia esquemas externos e intents de lojas/anúncios
-                                    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                                webChromeClient = object : WebChromeClient() {
+                                    override fun onPermissionRequest(request: PermissionRequest?) {
+                                        request?.grant(request.resources)
+                                    }
+                                    override fun onGeolocationPermissionsShowPrompt(
+                                        origin: String?,
+                                        callback: GeolocationPermissions.Callback?
+                                    ) {
+                                        callback?.invoke(origin, true, false)
+                                    }
+                                    override fun onShowCustomView(view: android.view.View?, callback: CustomViewCallback?) {
+                                        callback?.onCustomViewHidden()
+                                    }
+                                    override fun onHideCustomView() {}
+                                    override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                                        Log.d("CineLiveWeb", "[${consoleMessage?.messageLevel()}] ${consoleMessage?.message()} (${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()})")
                                         return true
                                     }
-                                    return false
                                 }
-
-                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                    super.onPageStarted(view, url, favicon)
-                                    view?.evaluateJavascript(antiSandboxPolyfill, null)
-                                }
-
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    view?.evaluateJavascript(antiSandboxPolyfill, null)
-                                    // Injeta estilos de tela cheia e ciclo agressivo de auto-play contínuo (cobre JWPlayer, Master e HTML5)
-                                    view?.evaluateJavascript(
-                                        """
+                                webViewClient = object : WebViewClient() {
+                                    private val antiSandboxPolyfill = """
                                         (function() {
-                                            var css = 'body, html { margin:0!important; padding:0!important; overflow:hidden!important; background:#000!important; width:100vw!important; height:100vh!important; } ' +
-                                                      '#player, iframe, video { width:100vw!important; height:100vh!important; position:fixed!important; top:0!important; left:0!important; z-index:999999!important; border:none!important; } ' +
-                                                      '#overlay, .spinner, #sb-message, #not-found-message, .ads, [class*="ad-"], [id*="ad-"] { display:none!important; }';
-                                            var head = document.head || document.getElementsByTagName('head')[0];
-                                            if (head) {
-                                                var style = document.createElement('style');
-                                                style.type = 'text/css';
-                                                style.appendChild(document.createTextNode(css));
-                                                head.appendChild(style);
-                                            }
+                                            try {
+                                                Object.defineProperty(document, 'domain', {
+                                                    get: function() { return location.hostname; },
+                                                    set: function(val) { return location.hostname; },
+                                                    configurable: true
+                                                });
+                                            } catch (e) {}
 
-                                            function autoPlay() {
-                                                // 1. Verifica se já está reproduzindo para NÃO pausar nem re-clicar!
-                                                var isPlaying = false;
-                                                try {
-                                                    if (window.jwplayer) {
-                                                        var p = (typeof window.jwplayer === 'function') ? (window.jwplayer('player') || window.jwplayer()) : null;
-                                                        if (p && typeof p.getState === 'function') {
-                                                            var s = p.getState();
-                                                            if (s === 'playing' || s === 'buffering') {
-                                                                isPlaying = true;
-                                                            }
-                                                        }
-                                                    }
-                                                } catch(e) {}
-
-                                                var vids = document.querySelectorAll('video');
-                                                for (var i = 0; i < vids.length; i++) {
-                                                    if (!vids[i].paused && vids[i].currentTime > 0) {
-                                                        isPlaying = true;
-                                                        break;
-                                                    }
+                                            // Polyfill Fullscreen API para impedir que o JWPlayer aborte a reprodução com "TypeError: Fullscreen is not supported"
+                                            var noop = function() { return Promise.resolve(); };
+                                            try {
+                                                if (typeof Element !== 'undefined') {
+                                                    Element.prototype.requestFullscreen = noop;
+                                                    Element.prototype.webkitRequestFullscreen = noop;
+                                                    Element.prototype.webkitEnterFullscreen = noop;
+                                                    Element.prototype.mozRequestFullScreen = noop;
+                                                    Element.prototype.msRequestFullscreen = noop;
                                                 }
-
-                                                if (isPlaying) {
-                                                    // Já está rodando o vídeo com sucesso: pára o timer imediatamente
-                                                    clearInterval(timer);
-                                                    return;
+                                                if (typeof HTMLVideoElement !== 'undefined') {
+                                                    HTMLVideoElement.prototype.requestFullscreen = noop;
+                                                    HTMLVideoElement.prototype.webkitRequestFullscreen = noop;
+                                                    HTMLVideoElement.prototype.webkitEnterFullscreen = noop;
                                                 }
-
-                                                // 2. Não está rodando: tenta JWPlayer sem fullscreen
-                                                try {
-                                                    if (window.jwplayer) {
-                                                        var jw = (typeof window.jwplayer === 'function') ? (window.jwplayer('player') || window.jwplayer()) : null;
-                                                        if (jw) {
-                                                            try { jw.setFullscreen(false); } catch(e){}
-                                                            if (typeof jw.play === 'function') {
-                                                                jw.setMute(false);
-                                                                jw.play(true);
-                                                            }
-                                                        }
-                                                    }
-                                                } catch(e) {}
-
-                                                // 3. Tenta elementos de vídeo HTML5 padrão
-                                                for (var k = 0; k < vids.length; k++) {
-                                                    var v = vids[k];
-                                                    if (v.paused) {
-                                                        var prom = v.play();
-                                                        if (prom !== undefined) {
-                                                            prom.catch(function(err) {
-                                                                v.muted = true;
-                                                                v.play().then(function() {
-                                                                    setTimeout(function() { v.muted = false; }, 800);
-                                                                });
-                                                            });
-                                                        }
-                                                    }
+                                                if (typeof Document !== 'undefined') {
+                                                    document.exitFullscreen = noop;
+                                                    document.webkitExitFullscreen = noop;
+                                                    document.mozCancelFullScreen = noop;
+                                                    document.msExitFullscreen = noop;
                                                 }
-
-                                                // 4. Clica SOMENTE no ícone de play se não estiver rodando (NUNCA clica no player ou vídeo!)
-                                                var playIcon = document.querySelector('.jw-display-icon-container, .jw-icon-playback');
-                                                if (playIcon) {
-                                                    try { playIcon.click(); } catch(e) {}
-                                                }
-                                            }
-
-                                            var count = 0;
-                                            var timer = setInterval(function() {
-                                                count++;
-                                                autoPlay();
-                                                if (count >= 50) { clearInterval(timer); }
-                                            }, 400);
-
-                                            autoPlay();
+                                            } catch(e) {}
                                         })();
-                                        """.trimIndent(), null
-                                    )
+                                    """.trimIndent()
+
+                                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                                        val reqUrl = request?.url?.toString()?.lowercase() ?: return null
+                                        if (reqUrl.contains("histats.com") || reqUrl.contains("llvpn.com") || reqUrl.contains("googlesyndication") || reqUrl.contains("adservice")) {
+                                            return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
+                                        }
+                                        return super.shouldInterceptRequest(view, request)
+                                    }
+
+                                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                        val url = request?.url?.toString() ?: return false
+                                        // Bloqueia esquemas externos e intents de lojas/anúncios
+                                        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                                            return true
+                                        }
+                                        return false
+                                    }
+
+                                    override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                                        super.onReceivedError(view, request, error)
+                                        if (request?.isForMainFrame == true) {
+                                            webViewError = "Sinal indisponível temporariamente no servidor"
+                                        }
+                                    }
+
+                                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                        super.onPageStarted(view, url, favicon)
+                                        view?.evaluateJavascript(antiSandboxPolyfill, null)
+                                    }
+
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        view?.evaluateJavascript(antiSandboxPolyfill, null)
+                                        // Injeta estilos de tela cheia e ciclo ágil de auto-play contínuo
+                                        view?.evaluateJavascript(
+                                            """
+                                            (function() {
+                                                var css = 'body, html { margin:0!important; padding:0!important; overflow:hidden!important; background:#000!important; width:100vw!important; height:100vh!important; } ' +
+                                                          '#player, iframe, video { width:100vw!important; height:100vh!important; position:fixed!important; top:0!important; left:0!important; z-index:999999!important; border:none!important; } ' +
+                                                          '#sb-message, #not-found-message, .ads, [class*="ad-"], [id*="ad-"] { display:none!important; }';
+                                                var head = document.head || document.getElementsByTagName('head')[0];
+                                                if (head) {
+                                                    var style = document.createElement('style');
+                                                    style.type = 'text/css';
+                                                    style.appendChild(document.createTextNode(css));
+                                                    head.appendChild(style);
+                                                }
+
+                                                function autoPlay() {
+                                                    // 1. Verifica se já está reproduzindo para NÃO pausar nem re-clicar!
+                                                    var isPlaying = false;
+                                                    try {
+                                                        if (window.jwplayer) {
+                                                            var p = (typeof window.jwplayer === 'function') ? (window.jwplayer('player') || window.jwplayer()) : null;
+                                                            if (p && typeof p.getState === 'function') {
+                                                                var s = p.getState();
+                                                                if (s === 'playing' || s === 'buffering') {
+                                                                    isPlaying = true;
+                                                                }
+                                                            }
+                                                        }
+                                                    } catch(e) {}
+
+                                                    var vids = document.querySelectorAll('video');
+                                                    for (var i = 0; i < vids.length; i++) {
+                                                        if (!vids[i].paused && vids[i].currentTime > 0) {
+                                                            isPlaying = true;
+                                                            break;
+                                                        }
+                                                    }
+
+                                                    if (isPlaying) {
+                                                        clearInterval(timer);
+                                                        return;
+                                                    }
+
+                                                    // Se houver botão de retry do player (caso de erro temporário), clica nele
+                                                    var retry = document.getElementById('retryBtn');
+                                                    if (retry && retry.offsetParent !== null) {
+                                                        try { retry.click(); } catch(e) {}
+                                                    }
+
+                                                    // 2. Não está rodando: tenta JWPlayer sem fullscreen
+                                                    try {
+                                                        if (window.jwplayer) {
+                                                            var jw = (typeof window.jwplayer === 'function') ? (window.jwplayer('player') || window.jwplayer()) : null;
+                                                            if (jw) {
+                                                                try { jw.setFullscreen(false); } catch(e){}
+                                                                if (typeof jw.play === 'function') {
+                                                                    jw.setMute(false);
+                                                                    jw.play(true);
+                                                                }
+                                                            }
+                                                        }
+                                                    } catch(e) {}
+
+                                                    // 3. Tenta elementos de vídeo HTML5 padrão
+                                                    for (var k = 0; k < vids.length; k++) {
+                                                        var v = vids[k];
+                                                        v.setAttribute('playsinline', '');
+                                                        if (v.paused) {
+                                                            var prom = v.play();
+                                                            if (prom !== undefined) {
+                                                                prom.catch(function() {
+                                                                    v.muted = true;
+                                                                    v.play().then(function() {
+                                                                        setTimeout(function() { v.muted = false; }, 600);
+                                                                    });
+                                                                });
+                                                            }
+                                                        }
+                                                    }
+
+                                                    // 4. Clica SOMENTE no ícone de play se não estiver rodando (NUNCA clica no player ou vídeo!)
+                                                    var playIcon = document.querySelector('.jw-display-icon-container, .jw-icon-playback, .jw-display-icon-display, .jw-button-color');
+                                                    if (playIcon) {
+                                                        try { playIcon.click(); } catch(e) {}
+                                                    }
+                                                }
+
+                                                var count = 0;
+                                                var timer = setInterval(function() {
+                                                    count++;
+                                                    autoPlay();
+                                                    if (count >= 50) { clearInterval(timer); }
+                                                }, 200);
+
+                                                autoPlay();
+                                            })();
+                                            """.trimIndent(), null
+                                        )
+                                    }
+                                }
+
+                                val stream = currentStream
+                                if (stream != null && stream.type == StreamType.WEB_EMBED) {
+                                    tag = stream.url
+                                    val headers = mapOf("Referer" to "https://rdcanais.org/")
+                                    loadUrl(stream.url, headers)
                                 }
                             }
-                        }
-                    },
-                    update = { webView ->
-                        val stream = currentStream
-                        if (stream != null && stream.type == StreamType.WEB_EMBED) {
-                            val url = stream.url
-                            if (url != lastLoadedUrl) {
-                                lastLoadedUrl = url
-                                val headers = mapOf("Referer" to "https://rdcanais.org/")
-                                webView.loadUrl(url, headers)
+                        },
+                        update = { webView ->
+                            val stream = currentStream
+                            if (stream != null && stream.type == StreamType.WEB_EMBED) {
+                                val url = stream.url
+                                if (webView.tag != url) {
+                                    webView.tag = url
+                                    val headers = mapOf("Referer" to "https://rdcanais.org/")
+                                    webView.loadUrl(url, headers)
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    if (webViewError != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(NeoColors.Bg),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier
+                                    .background(NeoColors.Surface, RectangleShape)
+                                    .border(3.dp, NeoColors.Yellow, RectangleShape)
+                                    .padding(24.dp)
+                            ) {
+                                Text(
+                                    text = "[ SINAL TEMPORARIAMENTE FORA DO AR ]",
+                                    style = NeoType.CardTitle,
+                                    color = NeoColors.Yellow
+                                )
+                                Text(
+                                    text = "O servidor do canal está instável no momento. Use o D-pad para alternar de canal.",
+                                    style = NeoType.Body,
+                                    color = NeoColors.TextPrimary
+                                )
                             }
                         }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                    }
+                }
             }
             null -> {
                 // Estado de espera ou carregamento do stream
@@ -469,7 +540,8 @@ fun LivePlayerScreen(
                     .padding(top = NeoDimens.SafeV, end = NeoDimens.SafeH)
                     .background(NeoColors.Surface, RectangleShape)
                     .border(2.dp, NeoColors.Yellow, RectangleShape)
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .zIndex(10f)
             ) {
                 Text(
                     text = "[ SINTONIZANDO: ${currentChannel?.name?.uppercase()} ]",

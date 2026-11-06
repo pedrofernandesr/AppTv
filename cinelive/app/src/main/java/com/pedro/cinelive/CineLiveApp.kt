@@ -10,6 +10,16 @@ import java.util.concurrent.TimeUnit
 
 class CineLiveApp : Application(), ImageLoaderFactory {
 
+    companion object {
+        lateinit var appContext: CineLiveApp
+            private set
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        appContext = this
+    }
+
     override fun newImageLoader(): ImageLoader {
         val okHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)

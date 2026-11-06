@@ -122,47 +122,83 @@ class ReiDosCanaisRepository(
         try {
             val response = api.getCategories()
             if (response.success && response.data.isNotEmpty()) {
-                Result.success(response.data)
-            } else {
-                Result.failure(Exception("Nenhuma categoria retornada pela API"))
+                return@withContext Result.success(response.data)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao buscar categorias", e)
-            Result.failure(e)
+            Log.w(TAG, "API de categorias offline, usando catálogo embarcado local", e)
         }
+
+        // Fallback para arquivo local embutido em assets
+        try {
+            val assetManager = com.pedro.cinelive.CineLiveApp.appContext.assets
+            val json = assetManager.open("default_categories.json").bufferedReader().use { it.readText() }
+            val fallbackResp = com.google.gson.Gson().fromJson(json, com.pedro.cinelive.data.model.CategoriesResponse::class.java)
+            if (fallbackResp.success && fallbackResp.data.isNotEmpty()) {
+                Log.d(TAG, "Categorias recuperadas com sucesso do backup local (${fallbackResp.data.size} categorias)")
+                return@withContext Result.success(fallbackResp.data)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Falha ao carregar categorias locais de fallback", e)
+        }
+
+        Result.failure(Exception("Não foi possível carregar categorias"))
     }
 
     suspend fun fetchChannels(category: String? = null): Result<List<ChannelItem>> = withContext(Dispatchers.IO) {
-        try {
+        val rawChannels = try {
             val response = api.getChannels(category)
             if (response.success && response.data.isNotEmpty()) {
-                val expandedList = mutableListOf<ChannelItem>()
-                for (channel in response.data) {
-                    if (channel.id.equals("globo", ignoreCase = true) && channel.embeds.size > 1) {
-                        // Expande as afiliadas regionais da Globo (incluindo Globo Maranhão, SP, RJ, etc.)
-                        for (embed in channel.embeds) {
-                            val providerName = embed.provider ?: "Globo"
-                            val slugFromUrl = embed.embedUrl?.substringAfterLast("/")?.lowercase() ?: "globo"
-                            expandedList.add(
-                                channel.copy(
-                                    id = slugFromUrl,
-                                    name = providerName,
-                                    category = "Canais Abertos",
-                                    embeds = listOf(embed)
-                                )
-                            )
-                        }
-                    } else {
-                        expandedList.add(channel)
-                    }
-                }
-                Result.success(expandedList)
+                response.data
             } else {
-                Result.failure(Exception("Nenhum canal retornado para categoria $category"))
+                loadLocalChannelsFallback(category)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao buscar canais", e)
-            Result.failure(e)
+            Log.w(TAG, "API de canais offline, usando catálogo embarcado local", e)
+            loadLocalChannelsFallback(category)
+        }
+
+        if (rawChannels.isNotEmpty()) {
+            val expandedList = mutableListOf<ChannelItem>()
+            for (channel in rawChannels) {
+                if (channel.id.equals("globo", ignoreCase = true) && channel.embeds.size > 1) {
+                    // Expande as afiliadas regionais da Globo (incluindo Globo Maranhão, SP, RJ, etc.)
+                    for (embed in channel.embeds) {
+                        val providerName = embed.provider ?: "Globo"
+                        val slugFromUrl = embed.embedUrl?.substringAfterLast("/")?.lowercase() ?: "globo"
+                        expandedList.add(
+                            channel.copy(
+                                id = slugFromUrl,
+                                name = providerName,
+                                category = "Canais Abertos",
+                                embeds = listOf(embed)
+                            )
+                        )
+                    }
+                } else {
+                    expandedList.add(channel)
+                }
+            }
+            Result.success(expandedList)
+        } else {
+            Result.failure(Exception("Nenhum canal disponível no momento"))
+        }
+    }
+
+    private fun loadLocalChannelsFallback(category: String?): List<ChannelItem> {
+        return try {
+            val assetManager = com.pedro.cinelive.CineLiveApp.appContext.assets
+            val json = assetManager.open("default_channels.json").bufferedReader().use { it.readText() }
+            val fallbackResp = com.google.gson.Gson().fromJson(json, com.pedro.cinelive.data.model.ChannelsResponse::class.java)
+            if (fallbackResp.success) {
+                if (category.isNullOrBlank()) {
+                    fallbackResp.data
+                } else {
+                    fallbackResp.data.filter { it.category.equals(category, ignoreCase = true) }
+                }
+            } else emptyList()
+        } catch (e: Exception) {
+            Log.e(TAG, "Falha ao carregar canais do backup local", e)
+            emptyList()
         }
     }
 

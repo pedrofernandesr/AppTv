@@ -132,8 +132,14 @@ class LiveViewModel(
     }
 
     fun selectChannel(channel: ChannelItem) {
+        if (_currentChannel.value?.id == channel.id && _currentStream.value != null) {
+            _isDrawerOpen.value = false
+            showEpgBanner(5000L)
+            return
+        }
         _currentChannel.value = channel
         _isDrawerOpen.value = false
+        _isLoading.value = true
         showEpgBanner(5000L)
 
         // Cancela resolução anterior e inicia a nova
@@ -144,6 +150,8 @@ class LiveViewModel(
                 _currentStream.value = stream
             } catch (e: Exception) {
                 Log.e(TAG, "Falha ao resolver stream para canal ${channel.name}", e)
+            } finally {
+                _isLoading.value = false
             }
         }
     }
