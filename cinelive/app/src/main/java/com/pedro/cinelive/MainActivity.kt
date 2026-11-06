@@ -51,4 +51,11 @@ class MainActivity : ComponentActivity() {
             if (id.isNotBlank()) liveViewModel.tuneChannelById(id)
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        liveViewModel.currentChannel.value?.let { channel ->
+            com.pedro.cinelive.data.local.ChannelPreferences.saveLastChannelId(channel.id)
+        }
+    }
 }

@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pedro.cinelive.data.api.ReiDosCanaisRepository
+import com.pedro.cinelive.data.local.ChannelPreferences
 import com.pedro.cinelive.data.model.CategoryItem
 import com.pedro.cinelive.data.model.ChannelItem
 import com.pedro.cinelive.data.model.ResolvedStream
@@ -112,12 +113,20 @@ class LiveViewModel(
             _channels.value = allChans
             _isLoading.value = false
 
-            // Seleciona canal inicial para reprodução imediata com vídeo ao vivo
+            // Seleciona canal inicial: prioriza o último canal assistido pelo usuário
             if (allChans.isNotEmpty() && _currentChannel.value == null) {
-                val preferred = allChans.find { it.id.equals("sbt", ignoreCase = true) }
+                val lastWatchedId = ChannelPreferences.getLastChannelId()
+                val lastChannel = if (!lastWatchedId.isNullOrBlank()) {
+                    allChans.find { it.id.equals(lastWatchedId, ignoreCase = true) }
+                } else null
+
+                val preferred = lastChannel
+                    ?: allChans.find { it.id.equals("sbt", ignoreCase = true) }
                     ?: allChans.find { it.id.equals("tvcultura", ignoreCase = true) }
                     ?: allChans.find { it.id.startsWith("globo", ignoreCase = true) }
                     ?: allChans.first()
+
+                Log.d(TAG, "Iniciando reproducao com canal: ${preferred.name} (ultimo salvo: $lastWatchedId)")
                 selectChannel(preferred)
             }
         }
@@ -136,6 +145,9 @@ class LiveViewModel(
     }
 
     fun selectChannel(channel: ChannelItem) {
+        // Persiste imediatamente o último canal assistido para restaurar no próximo início
+        ChannelPreferences.saveLastChannelId(channel.id)
+
         if (_currentChannel.value?.id == channel.id && _currentStream.value != null) {
             _isDrawerOpen.value = false
             _isCatalogGridOpen.value = false
