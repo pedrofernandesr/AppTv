@@ -52,7 +52,6 @@ class ReiDosCanaisRepository(
             "redetv" to "https://cdn.live.br1.jmvstream.com/webtv/AVJ-15235/playlist/playlist.m3u8",
             "redeminas" to "https://8hzcavccys.zoeweb.tv/redeminas/ngrp:redeminas_all/playlist.m3u8",
             "redemeionorte" to "https://maystreaming.cloudecast.com/redemeio/index.m3u8",
-            "band" to "http://45.162.64.114/BAND_NEWS/index.m3u8",
             "bandnews" to "http://45.162.64.114/BAND_NEWS/index.m3u8",
             "bandsports" to "http://45.162.64.114/BAND_SPORTS/index.m3u8",
 
