@@ -67,6 +67,20 @@ import com.pedro.cinelive.ui.theme.NeoColors
 import com.pedro.cinelive.ui.theme.NeoDimens
 import com.pedro.cinelive.ui.theme.NeoType
 
+private fun isHostAllowed(targetHost: String?, streamUrl: String?): Boolean {
+    val host = targetHost?.lowercase() ?: return false
+    val streamHost = try {
+        if (!streamUrl.isNullOrBlank()) android.net.Uri.parse(streamUrl).host?.lowercase() else null
+    } catch (e: Exception) { null }
+
+    val baseDomains = listOf("rdcanais.org", "reidosembeds.lat", "rdembed.lat")
+    val allowedDomains = if (streamHost != null) baseDomains + streamHost else baseDomains
+
+    return allowedDomains.any { allowed ->
+        host == allowed || host.endsWith(".$allowed")
+    }
+}
+
 @OptIn(UnstableApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -149,10 +163,12 @@ fun LivePlayerScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
+                    Log.d("CineLiveLifecycle", "ON_START recebido: retomando playback (ExoPlayer playWhenReady=true, WebView.onResume())")
                     exoPlayer.playWhenReady = true
                     activeWebView?.onResume()
                 }
                 Lifecycle.Event.ON_STOP -> {
+                    Log.d("CineLiveLifecycle", "ON_STOP recebido: pausando playback (ExoPlayer playWhenReady=false, WebView.onPause())")
                     exoPlayer.playWhenReady = false
                     activeWebView?.onPause()
                 }
@@ -185,16 +201,27 @@ fun LivePlayerScreen(
         }
     }
 
-    // Foca na raiz, no catálogo ou no drawer dependendo do estado e posiciona no canal atual
+    // Foca na raiz, no catálogo ou no drawer com retries e logs
+    suspend fun safeRequestFocus(requester: FocusRequester, targetName: String) {
+        for (attempt in 1..3) {
+            delay(20L * attempt)
+            val result = runCatching { requester.requestFocus() }
+            if (result.isSuccess) {
+                Log.d("CineLiveFocus", "Foco aplicado com sucesso em $targetName na tentativa $attempt")
+                return
+            } else {
+                Log.w("CineLiveFocus", "Tentativa $attempt de focar em $targetName falhou: ${result.exceptionOrNull()?.message}")
+            }
+        }
+    }
+
     LaunchedEffect(isDrawerOpen, isCatalogGridOpen) {
         when {
             isCatalogGridOpen -> {
-                delay(16)
-                runCatching { catalogFocusRequester.requestFocus() }
+                safeRequestFocus(catalogFocusRequester, "Catálogo")
             }
             isDrawerOpen -> {
-                delay(16)
-                runCatching { drawerFocusRequester.requestFocus() }
+                safeRequestFocus(drawerFocusRequester, "Drawer")
                 val current = currentChannel
                 if (current != null) {
                     val idx = channels.indexOfFirst { it.id == current.id }
@@ -204,8 +231,7 @@ fun LivePlayerScreen(
                 }
             }
             else -> {
-                delay(16)
-                runCatching { rootFocusRequester.requestFocus() }
+                safeRequestFocus(rootFocusRequester, "Root")
             }
         }
     }
@@ -263,23 +289,51 @@ fun LivePlayerScreen(
                                 activeWebView?.evaluateJavascript(
                                     """
                                     (function() {
+                                        var isPlaying = false;
+                                        var vids = document.querySelectorAll('video');
+                                        for (var i = 0; i < vids.length; i++) {
+                                            if (!vids[i].paused && vids[i].currentTime > 0) {
+                                                isPlaying = true;
+                                                break;
+                                            }
+                                        }
                                         try {
-                                            if (window.jwplayer) {
-                                                var p = window.jwplayer();
-                                                if (p && typeof p.play === 'function') {
-                                                    p.setMute(false);
-                                                    p.play(true);
+                                            if (!isPlaying && window.jwplayer) {
+                                                var p = (typeof window.jwplayer === 'function') ? (window.jwplayer('player') || window.jwplayer()) : null;
+                                                if (p && typeof p.getState === 'function') {
+                                                    var s = p.getState();
+                                                    if (s === 'playing' || s === 'buffering') {
+                                                        isPlaying = true;
+                                                    }
                                                 }
                                             }
                                         } catch(e) {}
-                                        var vids = document.querySelectorAll('video');
-                                        for (var i = 0; i < vids.length; i++) {
-                                            vids[i].muted = false;
-                                            if (vids[i].paused) {
-                                                vids[i].play();
+
+                                        // Se já estiver reproduzindo, não clica em nenhum botão para não pausar!
+                                        if (isPlaying) {
+                                            return;
+                                        }
+
+                                        // Se não estiver reproduzindo, tenta dar play nativo
+                                        try {
+                                            if (window.jwplayer) {
+                                                var jw = (typeof window.jwplayer === 'function') ? (window.jwplayer('player') || window.jwplayer()) : null;
+                                                if (jw && typeof jw.play === 'function') {
+                                                    jw.setMute(false);
+                                                    jw.play(true);
+                                                }
+                                            }
+                                        } catch(e) {}
+
+                                        for (var k = 0; k < vids.length; k++) {
+                                            vids[k].muted = false;
+                                            if (vids[k].paused) {
+                                                try { vids[k].play(); } catch(e) {}
                                             }
                                         }
-                                        var playBtns = document.querySelectorAll('.jw-display-icon-container, .jw-icon-playback, .vjs-big-play-button, .plyr__control--overlaid, button[class*="play"], div[class*="play-btn"]');
+
+                                        // Clica unicamente em botões de play overlay não ambíguos
+                                        var playBtns = document.querySelectorAll('.jw-display-icon-container, .vjs-big-play-button, .plyr__control--overlaid');
                                         for (var j = 0; j < playBtns.length; j++) {
                                             try { playBtns[j].click(); } catch(e) {}
                                         }
@@ -378,53 +432,6 @@ fun LivePlayerScreen(
                                 isFocusable = false
                                 isFocusableInTouchMode = false
                                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-                                setOnKeyListener { _, keyCode, event ->
-                                    if (event.action == android.view.KeyEvent.ACTION_DOWN) {
-                                        when (keyCode) {
-                                            android.view.KeyEvent.KEYCODE_BACK -> {
-                                                if (isCatalogGridOpen) {
-                                                    viewModel.closeCatalogGrid()
-                                                    true
-                                                } else if (isDrawerOpen) {
-                                                    viewModel.closeDrawer()
-                                                    true
-                                                } else {
-                                                    viewModel.openDrawer()
-                                                    true
-                                                }
-                                            }
-                                            android.view.KeyEvent.KEYCODE_DPAD_LEFT, android.view.KeyEvent.KEYCODE_MENU -> {
-                                                viewModel.openDrawer()
-                                                true
-                                            }
-                                            android.view.KeyEvent.KEYCODE_DPAD_UP, android.view.KeyEvent.KEYCODE_PROG_RED -> {
-                                                viewModel.openCatalogGrid()
-                                                true
-                                            }
-                                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                                viewModel.nextChannel()
-                                                true
-                                            }
-                                            android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
-                                                viewModel.nextChannel()
-                                                true
-                                            }
-                                            android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                                                viewModel.previousChannel()
-                                                true
-                                            }
-                                            android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER -> {
-                                                viewModel.showEpgBanner()
-                                                true
-                                            }
-                                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT, android.view.KeyEvent.KEYCODE_INFO -> {
-                                                viewModel.showEpgBanner()
-                                                true
-                                            }
-                                            else -> false
-                                        }
-                                    } else false
-                                }
                                 try {
                                     if (com.pedro.cinelive.BuildConfig.DEBUG) {
                                         WebView.setWebContentsDebuggingEnabled(true)
@@ -520,11 +527,10 @@ fun LivePlayerScreen(
                                             return true
                                         }
                                         if (request.isForMainFrame && !request.hasGesture()) {
-                                            val targetHost = uri.host?.lowercase() ?: ""
-                                            val currentUrl = currentStream?.url ?: ""
-                                            val initialHost = android.net.Uri.parse(currentUrl).host?.lowercase() ?: ""
-                                            if (targetHost.isNotEmpty() && initialHost.isNotEmpty() && !targetHost.contains(initialHost) && !initialHost.contains(targetHost)) {
-                                                Log.w("CineLiveWeb", "Bloqueando redirecionamento de frame principal sem gesto: $uri")
+                                            val targetHost = uri.host
+                                            val currentUrl = currentStream?.url
+                                            if (!isHostAllowed(targetHost, currentUrl)) {
+                                                Log.w("CineLiveWeb", "Bloqueando redirecionamento de frame principal para host não autorizado: $uri")
                                                 return true
                                             }
                                         }
@@ -660,6 +666,7 @@ fun LivePlayerScreen(
                                 wv.clearHistory()
                                 wv.removeAllViews()
                                 wv.destroy()
+                                Log.d("CineLiveWeb", "WebView onRelease: stopLoading, about:blank e destroy executados com sucesso")
                             } catch (e: Exception) {
                                 Log.w("CineLivePlayer", "Erro ao destruir WebView no onRelease", e)
                             }
@@ -669,15 +676,6 @@ fun LivePlayerScreen(
                         },
                         modifier = Modifier.fillMaxSize()
                     )
-
-                    DisposableEffect(currentStream) {
-                        onDispose {
-                            try {
-                                activeWebView?.stopLoading()
-                                activeWebView?.loadUrl("about:blank")
-                            } catch (e: Exception) {}
-                        }
-                    }
 
                     if (webViewError != null) {
                         Box(

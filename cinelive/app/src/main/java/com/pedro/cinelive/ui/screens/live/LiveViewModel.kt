@@ -70,6 +70,7 @@ class LiveViewModel(
     fun loadInitialData() {
         viewModelScope.launch {
             _isLoading.value = true
+            Log.d(TAG, "isLoading: true (iniciando carga de dados)")
             _errorMessage.value = null
 
             // 1. Busca catálogo completo de todos os canais (null = todos)
@@ -80,6 +81,7 @@ class LiveViewModel(
             if (chanResult.isFailure && allChans.isEmpty()) {
                 _errorMessage.value = "Falha ao carregar lista de canais. Verifique sua conexão."
                 _isLoading.value = false
+                Log.d(TAG, "isLoading: false (falha ao carregar catálogo de canais)")
                 return@launch
             }
 
@@ -121,6 +123,7 @@ class LiveViewModel(
             _selectedCategory.value = defaultCat
             _channels.value = allChans
             _isLoading.value = false
+            Log.d(TAG, "isLoading: false (catálogo carregado: ${allChans.size} canais)")
 
             // Seleciona canal inicial: prioriza o último canal assistido pelo usuário
             if (allChans.isNotEmpty() && _currentChannel.value == null) {
@@ -169,6 +172,7 @@ class LiveViewModel(
         _isDrawerOpen.value = false
         _isCatalogGridOpen.value = false
         _isLoading.value = true
+        Log.d(TAG, "isLoading: true (sintonizando: ${channel.name})")
         showEpgBanner(5000L)
 
         // Cancela resolução anterior e inicia a nova com tratamento seguro de concorrência
@@ -188,6 +192,7 @@ class LiveViewModel(
             } finally {
                 if (isActive) {
                     _isLoading.value = false
+                    Log.d(TAG, "isLoading: false (finalizada resolução de: ${channel.name})")
                 }
             }
         }
