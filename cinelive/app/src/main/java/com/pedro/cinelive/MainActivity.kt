@@ -2,6 +2,7 @@ package com.pedro.cinelive
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -31,14 +32,22 @@ class MainActivity : ComponentActivity() {
         )
 
         intent?.getStringExtra("channel_id")?.let { id ->
+            if (BuildConfig.DEBUG) {
+                Log.d("MainActivity", "onCreate extra channel_id: $id")
+            }
             if (id.isNotBlank()) liveViewModel.tuneChannelById(id)
         }
+
+        val simulateNoFeatures = if (BuildConfig.DEBUG) {
+            intent?.getBooleanExtra("simulate_no_features", false) ?: false
+        } else false
 
         setContent {
             CineLiveTheme {
                 LivePlayerScreen(
                     viewModel = liveViewModel,
-                    onExitApp = { finish() }
+                    onExitApp = { finish() },
+                    simulateNoFeatures = simulateNoFeatures
                 )
             }
         }
@@ -47,8 +56,12 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getStringExtra("channel_id")?.let { id ->
-            if (id.isNotBlank()) liveViewModel.tuneChannelById(id)
+        val id = intent.getStringExtra("channel_id")
+        if (BuildConfig.DEBUG) {
+            Log.d("MainActivity", "onNewIntent extra channel_id: $id")
+        }
+        id?.let {
+            if (it.isNotBlank()) liveViewModel.tuneChannelById(it)
         }
     }
 

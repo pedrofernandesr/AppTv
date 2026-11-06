@@ -17,6 +17,16 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.io.ByteArrayInputStream
+import java.util.concurrent.ConcurrentHashMap
+import android.content.Context
+import android.media.AudioManager
+import android.net.Uri
+import android.os.SystemClock
+import android.view.MotionEvent
+import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.WebMessageCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
@@ -83,13 +93,23 @@ private fun isHostAllowed(targetHost: String?, streamUrl: String?): Boolean {
     }
 }
 
+val ALLOWED_WEB_EMBED_ORIGINS: Set<String> = setOf(
+    "https://penterosa.lat",
+    "https://dadinhodetapioca.fun",
+    "https://mastruzcomleite.site",
+    "https://v1.rdembed.lat",
+    "https://reidosembeds.lat",
+    "https://rdcanais.org"
+)
+
 @OptIn(UnstableApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun LivePlayerScreen(
     viewModel: LiveViewModel,
     onExitApp: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    simulateNoFeatures: Boolean = false
 ) {
     val context = LocalContext.current
 
@@ -107,6 +127,7 @@ fun LivePlayerScreen(
     val rootFocusRequester = remember { FocusRequester() }
     val drawerFocusRequester = remember { FocusRequester() }
     val catalogFocusRequester = remember { FocusRequester() }
+    val framePlayingMap = remember { ConcurrentHashMap<String, Boolean>() }
     val channelListState = rememberLazyListState()
     var activeWebView by remember { mutableStateOf<WebView?>(null) }
     var webViewError by remember { mutableStateOf<String?>(null) }
@@ -138,7 +159,9 @@ fun LivePlayerScreen(
                 repeatMode = Player.REPEAT_MODE_OFF
                 addListener(object : Player.Listener {
                     override fun onPlayerError(error: PlaybackException) {
-                        Log.e("CineLivePlayer", "ExoPlayer error: ${error.errorCodeName} - ${error.message}", error)
+                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                            Log.e("CineLivePlayer", "ExoPlayer error: ${error.errorCodeName} - ${error.message}", error)
+                        }
                         if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                             seekToDefaultPosition()
                             prepare()
@@ -147,7 +170,9 @@ fun LivePlayerScreen(
                         }
                     }
                     override fun onPlaybackStateChanged(playbackState: Int) {
-                        Log.d("CineLivePlayer", "ExoPlayer state: $playbackState (READY=${Player.STATE_READY})")
+                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                            Log.d("CineLivePlayer", "ExoPlayer state: $playbackState (READY=${Player.STATE_READY})")
+                        }
                     }
                 })
             }
@@ -167,12 +192,16 @@ fun LivePlayerScreen(
                 Lifecycle.Event.ON_START -> {
                     exoPlayer.playWhenReady = true
                     activeWebView?.onResume()
-                    Log.d("CineLiveLifecycle", "ON_START recebido: retomando playback (ExoPlayer isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady}, WebView.onResume())")
+                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                        Log.d("CineLiveLifecycle", "ON_START recebido: retomando playback (ExoPlayer isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady}, WebView.onResume())")
+                    }
                 }
                 Lifecycle.Event.ON_STOP -> {
                     exoPlayer.playWhenReady = false
                     activeWebView?.onPause()
-                    Log.d("CineLiveLifecycle", "ON_STOP recebido: pausando playback (ExoPlayer isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady}, WebView.onPause())")
+                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                        Log.d("CineLiveLifecycle", "ON_STOP recebido: pausando playback (ExoPlayer isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady}, WebView.onPause())")
+                    }
                 }
                 else -> {}
             }
@@ -189,7 +218,9 @@ fun LivePlayerScreen(
         exoPlayerError = null
         if (stream != null) {
             val host = runCatching { java.net.URI(stream.url).host }.getOrNull() ?: "desconhecido"
-            Log.d("CineLivePlayer", "Stream carregado: tipo=${stream.type}, host=$host, url=${stream.url}")
+            if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                Log.d("CineLivePlayer", "Stream carregado: tipo=${stream.type}, host=$host, url=${stream.url}")
+            }
         }
         if (stream != null && stream.type == StreamType.DIRECT_M3U8) {
             if (stream.headers.isNotEmpty()) {
@@ -201,7 +232,9 @@ fun LivePlayerScreen(
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
             val isStarted = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-            Log.d("CineLivePlayer", "DIRECT_M3U8 configurado: lifecycle.isAtLeast(STARTED)=$isStarted, currentState=${lifecycleOwner.lifecycle.currentState}, playWhenReady=${exoPlayer.playWhenReady}, isPlaying=${exoPlayer.isPlaying}")
+            if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                Log.d("CineLivePlayer", "DIRECT_M3U8 configurado: lifecycle.isAtLeast(STARTED)=$isStarted, currentState=${lifecycleOwner.lifecycle.currentState}, playWhenReady=${exoPlayer.playWhenReady}, isPlaying=${exoPlayer.isPlaying}")
+            }
             if (isStarted) {
                 exoPlayer.play()
             }
@@ -231,6 +264,38 @@ fun LivePlayerScreen(
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
         }
+
+        if (stream != null && stream.type == StreamType.WEB_EMBED) {
+            framePlayingMap.clear()
+            val isDocStartSupported = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && !simulateNoFeatures
+            val isWebMessageSupported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) && !simulateNoFeatures
+
+            launch {
+                delay(3500)
+                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                val isAudioPlaying = audioManager?.isMusicActive == true
+                val isAnyPermittedFramePlaying = if (isWebMessageSupported) framePlayingMap.values.any { it } else false
+                val isPlaying = isAudioPlaying || isAnyPermittedFramePlaying
+
+                // Só despacha touch inicial se não estiver tocando e houver suporte seguro para rastrear estado
+                if (!isPlaying && isWebMessageSupported && isDocStartSupported) {
+                    activeWebView?.let { wv ->
+                        val w = wv.width.toFloat().takeIf { it > 0 } ?: 1920f
+                        val h = wv.height.toFloat().takeIf { it > 0 } ?: 1080f
+                        val now = SystemClock.uptimeMillis()
+                        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, w / 2f, h / 2f, 0)
+                        val up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, w / 2f, h / 2f, 0)
+                        wv.dispatchTouchEvent(down)
+                        wv.dispatchTouchEvent(up)
+                        down.recycle()
+                        up.recycle()
+                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                            Log.d("CineLiveWeb", "Plano B: dispatchTouchEvent único por canal executado no centro ($w x $h)")
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Foca na raiz, no catálogo ou no drawer com retries e logs
@@ -239,13 +304,19 @@ fun LivePlayerScreen(
             delay(20L * attempt)
             val result = runCatching { requester.requestFocus() }
             if (result.isSuccess) {
-                Log.d("CineLiveFocus", "Foco aplicado com sucesso em $targetName na tentativa $attempt")
+                if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                    Log.d("CineLiveFocus", "Foco aplicado com sucesso em $targetName na tentativa $attempt")
+                }
                 return
             } else {
-                Log.w("CineLiveFocus", "Tentativa $attempt de focar em $targetName falhou com exceção: ${result.exceptionOrNull()?.message}")
+                if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                    Log.w("CineLiveFocus", "Tentativa $attempt de focar em $targetName falhou com exceção: ${result.exceptionOrNull()?.message}")
+                }
             }
         }
-        Log.e("CineLiveFocus", "FALHA DEFINITIVA: Todas as 3 tentativas de focar em $targetName falharam!")
+        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+            Log.e("CineLiveFocus", "FALHA DEFINITIVA: Todas as 3 tentativas de focar em $targetName falharam!")
+        }
     }
 
     LaunchedEffect(isDrawerOpen, isCatalogGridOpen) {
@@ -319,9 +390,54 @@ fun LivePlayerScreen(
                         }
                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                             if (currentStream?.type == StreamType.WEB_EMBED) {
+                                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                                val isAudioPlaying = audioManager?.isMusicActive == true
+                                val isDocStartSupported = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && !simulateNoFeatures
+                                val isWebMessageSupported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) && !simulateNoFeatures
+                                val isAnyPermittedFramePlaying = if (isWebMessageSupported) framePlayingMap.values.any { it } else false
+                                val chanceOfVideoPlaying = isAudioPlaying || isAnyPermittedFramePlaying || !isWebMessageSupported || !isDocStartSupported
+
+                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                    Log.d("CineLiveWeb", "[DPAD_CENTER] isAudioPlaying=$isAudioPlaying, framePlaying=$isAnyPermittedFramePlaying, chanceOfPlaying=$chanceOfVideoPlaying, webMsgSupported=$isWebMessageSupported")
+                                }
+
+                                if (!chanceOfVideoPlaying) {
+                                    activeWebView?.let { wv ->
+                                        val w = wv.width.toFloat().takeIf { it > 0 } ?: 1920f
+                                        val h = wv.height.toFloat().takeIf { it > 0 } ?: 1080f
+                                        val now = SystemClock.uptimeMillis()
+                                        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, w / 2f, h / 2f, 0)
+                                        val up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, w / 2f, h / 2f, 0)
+                                        wv.dispatchTouchEvent(down)
+                                        wv.dispatchTouchEvent(up)
+                                        down.recycle()
+                                        up.recycle()
+                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                            Log.d("CineLiveWeb", "[DPAD_CENTER] Plano B: dispatchTouchEvent acionado no centro ($w x $h)")
+                                        }
+                                    }
+                                } else {
+                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                        Log.d("CineLiveWeb", "[DPAD_CENTER] dispatchTouchEvent bloqueado por precaucao (chance de video estar tocando)")
+                                    }
+                                }
+
                                 activeWebView?.evaluateJavascript(
                                     """
                                     (function() {
+                                        // Envia postMessage recursivo para todos os iframes da página
+                                        function broadcastFrames(win, msg) {
+                                            if (!win) return;
+                                            try { win.postMessage(msg, '*'); } catch(e) {}
+                                            try {
+                                                for (var f = 0; f < win.frames.length; f++) {
+                                                    broadcastFrames(win.frames[f], msg);
+                                                }
+                                            } catch(e) {}
+                                        }
+                                        broadcastFrames(window, 'cine-play');
+                                        broadcastFrames(window, 'cine-unmute');
+
                                         var isPlaying = false;
                                         var vids = document.querySelectorAll('video');
                                         for (var i = 0; i < vids.length; i++) {
@@ -479,9 +595,17 @@ fun LivePlayerScreen(
                                 isFocusable = false
                                 isFocusableInTouchMode = false
                                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                                val webViewPackage = WebViewCompat.getCurrentWebViewPackage(context)
+                                val webViewVersion = webViewPackage?.versionName ?: "Desconhecida"
+                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                    Log.d("CineLiveWeb", "Android System WebView version: $webViewVersion (pacote: ${webViewPackage?.packageName})")
+                                }
+
                                 if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
                                     onPause()
-                                    Log.d("CineLiveWeb", "WebView criada em background: onPause() executado")
+                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                        Log.d("CineLiveWeb", "WebView criada em background: onPause() executado")
+                                    }
                                 }
                                 try {
                                     if (com.pedro.cinelive.BuildConfig.DEBUG) {
@@ -490,7 +614,9 @@ fun LivePlayerScreen(
                                     CookieManager.getInstance().setAcceptCookie(true)
                                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                                 } catch (e: Exception) {
-                                    Log.w("CineLivePlayer", "Erro ao configurar cookies na WebView", e)
+                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                        Log.w("CineLivePlayer", "Erro ao configurar cookies na WebView", e)
+                                    }
                                 }
                                 settings.apply {
                                     javaScriptEnabled = true
@@ -505,6 +631,189 @@ fun LivePlayerScreen(
                                     // MIXED_CONTENT_ALWAYS_ALLOW: necessário para carregar chunks HLS e fontes em http dentro de embeds https
                                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                     userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                }
+
+                                val isDocStartSupported = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && !simulateNoFeatures
+                                val isWebMessageSupported = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) && !simulateNoFeatures
+
+                                if (isWebMessageSupported) {
+                                    try {
+                                        WebViewCompat.addWebMessageListener(
+                                            this,
+                                            "CineBridge",
+                                            ALLOWED_WEB_EMBED_ORIGINS,
+                                            object : WebViewCompat.WebMessageListener {
+                                                override fun onPostMessage(
+                                                    view: WebView,
+                                                    message: WebMessageCompat,
+                                                    sourceOrigin: Uri,
+                                                    isMainFrame: Boolean,
+                                                    replyProxy: JavaScriptReplyProxy
+                                                ) {
+                                                    val originStr = sourceOrigin.toString()
+                                                    if (ALLOWED_WEB_EMBED_ORIGINS.contains(originStr)) {
+                                                        val data = message.data
+                                                        if (data != null) {
+                                                            val isPlaying = if (data.contains("\"playing\":true") || data == "true") {
+                                                                true
+                                                            } else if (data.contains("\"playing\":false") || data == "false") {
+                                                                false
+                                                            } else null
+
+                                                            if (isPlaying != null) {
+                                                                framePlayingMap[originStr] = isPlaying
+                                                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                                                    Log.d("CineLiveWeb", "[WebMessageListener] frame=$originStr isPlaying=$isPlaying (activePermittedFrames=${framePlayingMap.filterValues { it }.keys})")
+                                                                }
+                                                            }
+                                                        }
+                                                    } else {
+                                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                                            Log.w("CineLiveWeb", "WebMessage rejeitada de origem não permitida: $originStr")
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        )
+                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                            Log.d("CineLiveWeb", "addWebMessageListener configurado para $ALLOWED_WEB_EMBED_ORIGINS")
+                                        }
+                                    } catch (e: Exception) {
+                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                            Log.e("CineLiveWeb", "Erro ao registrar addWebMessageListener", e)
+                                        }
+                                    }
+                                } else {
+                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                        Log.w("CineLiveWeb", "WEB_MESSAGE_LISTENER não suportado ou desativado")
+                                    }
+                                }
+
+                                if (isDocStartSupported) {
+                                    val iframeScript = """
+                                        (function() {
+                                            console.log('[CineFrameInjection] Injected into: ' + location.href);
+
+                                            var hasAutoPlayed = false;
+
+                                            function notifyBridge(isPlaying) {
+                                                try {
+                                                    if (window.CineBridge && typeof window.CineBridge.postMessage === 'function') {
+                                                        window.CineBridge.postMessage(JSON.stringify({ action: 'setVideoPlaying', playing: isPlaying }));
+                                                    }
+                                                } catch(e) {}
+                                            }
+
+                                            function hookVideo(v) {
+                                                if (!v || v.__cineHooked) return;
+                                                v.__cineHooked = true;
+                                                v.addEventListener('playing', function() {
+                                                    if (!v.paused && v.currentTime > 0) {
+                                                        notifyBridge(true);
+                                                    }
+                                                });
+                                                v.addEventListener('pause', function() {
+                                                    notifyBridge(false);
+                                                });
+                                                v.addEventListener('ended', function() {
+                                                    notifyBridge(false);
+                                                });
+                                                v.addEventListener('timeupdate', function() {
+                                                    notifyBridge(!v.paused && v.currentTime > 0);
+                                                });
+                                                if (!v.paused && v.currentTime > 0) {
+                                                    notifyBridge(true);
+                                                }
+                                            }
+
+                                            function safePlayAndUnmute(source) {
+                                                var video = document.querySelector('video');
+                                                if (!video) return false;
+                                                hookVideo(video);
+
+                                                try {
+                                                    if (video.muted) {
+                                                        video.muted = false;
+                                                        console.log('[CineFrameInjection] Video desmutado: ' + location.href);
+                                                    }
+                                                } catch(e) {}
+
+                                                if (!video.paused && video.currentTime > 0) {
+                                                    notifyBridge(true);
+                                                    return true;
+                                                }
+
+                                                console.log('[CineFrameInjection] safePlayAndUnmute (' + source + '): ' + location.href);
+                                                try {
+                                                    video.muted = false;
+                                                    var p = video.play();
+                                                    if (p && p.catch) {
+                                                        p.catch(function(err) {
+                                                            console.log('[CineFrameInjection] play() desmutado falhou, tentando mutado: ' + err);
+                                                            video.muted = true;
+                                                            video.play().catch(function(){});
+                                                        });
+                                                    }
+                                                } catch(e) {}
+
+                                                if (video.paused) {
+                                                    var overlays = document.querySelectorAll('#center-play-btn, .center-play-btn, .bmpui-ui-hugeplaybacktogglebutton, .vjs-big-play-button, .plyr__control--overlaid, .jw-display-icon-container');
+                                                    overlays.forEach(function(btn) {
+                                                        try {
+                                                            btn.click();
+                                                            console.log('[CineFrameInjection] Overlay seguro acionado (' + (btn.id || btn.className || '') + '): ' + location.href);
+                                                        } catch(e) {}
+                                                    });
+                                                    try { video.play().catch(function(){}); } catch(e) {}
+                                                }
+                                                return true;
+                                            }
+
+                                            window.addEventListener('message', function(evt) {
+                                                var data = evt.data;
+                                                if (data === 'cine-play' || data === 'cine-unmute' || (data && (data.action === 'cine-play' || data.action === 'cine-unmute'))) {
+                                                    console.log('[CineFrameInjection] postMessage recebido (' + JSON.stringify(data) + ') em ' + location.href);
+                                                    safePlayAndUnmute('postMessage');
+                                                }
+                                            });
+
+                                            var timer = setInterval(function() {
+                                                var video = document.querySelector('video');
+                                                if (video) {
+                                                    hookVideo(video);
+                                                    if (!hasAutoPlayed) {
+                                                        hasAutoPlayed = true;
+                                                        safePlayAndUnmute('autoplay-start');
+                                                    } else if (video.paused) {
+                                                        safePlayAndUnmute('timer-retry');
+                                                    }
+                                                    if (!video.paused && video.currentTime > 0) {
+                                                        notifyBridge(true);
+                                                        clearInterval(timer);
+                                                    }
+                                                }
+                                            }, 500);
+
+                                            setTimeout(function() {
+                                                clearInterval(timer);
+                                            }, 20000);
+                                        })();
+                                    """.trimIndent()
+
+                                    try {
+                                        WebViewCompat.addDocumentStartJavaScript(this, iframeScript, ALLOWED_WEB_EMBED_ORIGINS)
+                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                            Log.d("CineLiveWeb", "addDocumentStartJavaScript configurado com sucesso para $ALLOWED_WEB_EMBED_ORIGINS")
+                                        }
+                                    } catch (e: Exception) {
+                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                            Log.e("CineLiveWeb", "Erro ao registrar addDocumentStartJavaScript", e)
+                                        }
+                                    }
+                                } else {
+                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                        Log.w("CineLiveWeb", "DOCUMENT_START_SCRIPT não suportado no WebView atual")
+                                    }
                                 }
                                 webChromeClient = object : WebChromeClient() {
                                     override fun onPermissionRequest(request: PermissionRequest?) {
@@ -523,7 +832,9 @@ fun LivePlayerScreen(
                                     }
                                     override fun onHideCustomView() {}
                                     override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
-                                        Log.d("CineLiveWeb", "[${consoleMessage?.messageLevel()}] ${consoleMessage?.message()} (${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()})")
+                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                            Log.d("CineLiveWeb", "[${consoleMessage?.messageLevel()}] ${consoleMessage?.message()} (${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()})")
+                                        }
                                         return true
                                     }
                                 }
@@ -581,7 +892,9 @@ fun LivePlayerScreen(
                                             val targetHost = uri.host
                                             val currentUrl = currentStream?.url
                                             if (!isHostAllowed(targetHost, currentUrl)) {
-                                                Log.w("CineLiveWeb", "Bloqueando redirecionamento de frame principal para host não autorizado: $uri")
+                                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                                    Log.w("CineLiveWeb", "Bloqueando redirecionamento de frame principal para host não autorizado: $uri")
+                                                }
                                                 return true
                                             }
                                         }
@@ -591,7 +904,9 @@ fun LivePlayerScreen(
                                     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                                         super.onReceivedError(view, request, error)
                                         if (request?.isForMainFrame == true) {
-                                            Log.e("CineLiveWeb", "onReceivedError no frame principal: url=${request.url}, errorCode=${error?.errorCode}, desc=${error?.description}")
+                                            if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                                Log.e("CineLiveWeb", "onReceivedError no frame principal: url=${request.url}, errorCode=${error?.errorCode}, desc=${error?.description}")
+                                            }
                                             webViewError = "Sinal indisponível temporariamente no servidor"
                                         }
                                     }
@@ -735,15 +1050,20 @@ fun LivePlayerScreen(
                             }
                         },
                         onRelease = { wv ->
+                            framePlayingMap.clear()
                             try {
                                 wv.stopLoading()
                                 wv.loadUrl("about:blank")
                                 wv.clearHistory()
                                 wv.removeAllViews()
                                 wv.destroy()
-                                Log.d("CineLiveWeb", "WebView onRelease: stopLoading, about:blank e destroy executados com sucesso")
+                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                    Log.d("CineLiveWeb", "WebView onRelease: stopLoading, about:blank e destroy executados com sucesso")
+                                }
                             } catch (e: Exception) {
-                                Log.w("CineLivePlayer", "Erro ao destruir WebView no onRelease", e)
+                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                    Log.w("CineLivePlayer", "Erro ao destruir WebView no onRelease", e)
+                                }
                             }
                             if (activeWebView === wv) {
                                 activeWebView = null

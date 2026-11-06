@@ -101,6 +101,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // AndroidX WebKit (Document Start JavaScript injection for cross-origin iframes)
+    implementation("androidx.webkit:webkit:1.11.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
