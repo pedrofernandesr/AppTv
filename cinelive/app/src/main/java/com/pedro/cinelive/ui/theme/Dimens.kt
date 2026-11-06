@@ -11,7 +11,7 @@ object NeoDimens {
     val StripeAccent = 4.dp
     val ShadowFocus = 4.dp
 
-    val DrawerW = 390.dp
+    val DrawerW = 440.dp
     val ChannelCardH = 70.dp
     val ButtonH = 44.dp
     val Gap = 12.dp

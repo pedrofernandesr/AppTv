@@ -704,13 +704,18 @@ fun LivePlayerScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = "[ D-PAD: NAVEGAR // OK: ASSISTIR // VOLTAR: FECHAR ]",
-                    style = NeoType.Badge,
-                    color = NeoColors.TextMuted
-                )
+                // Rodapé de instruções do menu
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp)
+                ) {
+                    Text(
+                        text = "[ D-PAD: NAVEGAR // OK: ASSISTIR // VOLTAR: FECHAR ]",
+                        style = NeoType.Badge,
+                        color = NeoColors.TextMuted
+                    )
+                }
             }
         }
 
