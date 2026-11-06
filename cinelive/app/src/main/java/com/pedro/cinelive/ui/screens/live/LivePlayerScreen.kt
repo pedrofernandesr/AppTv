@@ -6,6 +6,7 @@ import android.graphics.Color as AndroidColor
 import android.util.Log
 import android.view.KeyEvent
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -77,6 +78,7 @@ fun LivePlayerScreen(
     val rootFocusRequester = remember { FocusRequester() }
     val drawerFocusRequester = remember { FocusRequester() }
     val channelListState = rememberLazyListState()
+    var activeWebView by remember { mutableStateOf<WebView?>(null) }
 
     // Instância otimizada de ExoPlayer para HLS de alta estabilidade
     val exoPlayer = remember {
@@ -176,8 +178,30 @@ fun LivePlayerScreen(
                             viewModel.nextChannel()
                             true
                         }
-                        KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                        KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MENU -> {
                             viewModel.openDrawer()
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                            if (currentStream?.type == StreamType.WEB_EMBED) {
+                                activeWebView?.evaluateJavascript(
+                                    """
+                                    (function() {
+                                        try { if (window.jwplayer) { window.jwplayer().play(true); } } catch(e){}
+                                        var vids = document.querySelectorAll('video');
+                                        for (var i = 0; i < vids.length; i++) {
+                                            vids[i].muted = false;
+                                            vids[i].play();
+                                        }
+                                        var btns = document.querySelectorAll('.jw-display-icon-container, .jw-icon-playback, #player, video');
+                                        for (var j = 0; j < btns.length; j++) {
+                                            btns[j].click();
+                                        }
+                                    })();
+                                    """.trimIndent(), null
+                                )
+                            }
+                            viewModel.showEpgBanner()
                             true
                         }
                         KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_INFO -> {
@@ -210,11 +234,21 @@ fun LivePlayerScreen(
                 AndroidView(
                     factory = { ctx ->
                         WebView(ctx).apply {
+                            activeWebView = this
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
                             setBackgroundColor(AndroidColor.BLACK)
+                            isFocusable = true
+                            isFocusableInTouchMode = true
+                            try {
+                                WebView.setWebContentsDebuggingEnabled(true)
+                                CookieManager.getInstance().setAcceptCookie(true)
+                                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                            } catch (e: Exception) {
+                                Log.w("CineLivePlayer", "Erro ao configurar cookies na WebView", e)
+                            }
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
@@ -268,23 +302,70 @@ fun LivePlayerScreen(
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     view?.evaluateJavascript(antiSandboxPolyfill, null)
-                                    // Força o player e qualquer iframe a ocupar 100% da tela em tela cheia na TV
+                                    // Injeta estilos de tela cheia e ciclo agressivo de auto-play contínuo (cobre JWPlayer, Master e HTML5)
                                     view?.evaluateJavascript(
                                         """
                                         (function() {
-                                            var css = 'body, html { margin:0!important; padding:0!important; overflow:hidden!important; background:#000!important; } ' +
-                                                      'iframe, video { width:100vw!important; height:100vh!important; position:fixed!important; top:0!important; left:0!important; z-index:999999!important; border:none!important; }';
+                                            var css = 'body, html { margin:0!important; padding:0!important; overflow:hidden!important; background:#000!important; width:100vw!important; height:100vh!important; } ' +
+                                                      '#player, iframe, video { width:100vw!important; height:100vh!important; position:fixed!important; top:0!important; left:0!important; z-index:999999!important; border:none!important; } ' +
+                                                      '#overlay, .spinner, #sb-message, #not-found-message, .ads, [class*="ad-"], [id*="ad-"] { display:none!important; }';
                                             var head = document.head || document.getElementsByTagName('head')[0];
-                                            var style = document.createElement('style');
-                                            style.type = 'text/css';
-                                            style.appendChild(document.createTextNode(css));
-                                            head.appendChild(style);
-
-                                            var vids = document.getElementsByTagName('video');
-                                            for (var i = 0; i < vids.length; i++) {
-                                                vids[i].muted = false;
-                                                vids[i].play();
+                                            if (head) {
+                                                var style = document.createElement('style');
+                                                style.type = 'text/css';
+                                                style.appendChild(document.createTextNode(css));
+                                                head.appendChild(style);
                                             }
+
+                                            function autoPlay() {
+                                                // 1. Tenta API do JWPlayer se existir
+                                                try {
+                                                    if (window.jwplayer) {
+                                                        var p = (typeof window.jwplayer === 'function') ? (window.jwplayer('player') || window.jwplayer()) : null;
+                                                        if (p && typeof p.play === 'function') {
+                                                            if (!p.getState || p.getState() !== 'playing') {
+                                                                p.setMute(false);
+                                                                p.play(true);
+                                                            }
+                                                        }
+                                                    }
+                                                } catch(e) {}
+
+                                                // 2. Tenta elementos de vídeo HTML5 padrão
+                                                var vids = document.querySelectorAll('video');
+                                                for (var i = 0; i < vids.length; i++) {
+                                                    var v = vids[i];
+                                                    try {
+                                                        if (v.paused) {
+                                                            v.muted = false;
+                                                            var prom = v.play();
+                                                            if (prom !== undefined) {
+                                                                prom.catch(function() {
+                                                                    v.muted = true;
+                                                                    v.play().then(function() {
+                                                                        setTimeout(function() { v.muted = false; }, 800);
+                                                                    });
+                                                                });
+                                                            }
+                                                        }
+                                                    } catch(e) {}
+                                                }
+
+                                                // 3. Simula clique em botões de play e contêineres de playback
+                                                var clickables = document.querySelectorAll('.jw-display-icon-container, .jw-icon-playback, .jw-preview, button, #player, video');
+                                                for (var j = 0; j < clickables.length; j++) {
+                                                    try { clickables[j].click(); } catch(e) {}
+                                                }
+                                            }
+
+                                            var count = 0;
+                                            var timer = setInterval(function() {
+                                                count++;
+                                                autoPlay();
+                                                if (count >= 50) { clearInterval(timer); }
+                                            }, 300);
+
+                                            autoPlay();
                                         })();
                                         """.trimIndent(), null
                                     )
@@ -295,7 +376,8 @@ fun LivePlayerScreen(
                     update = { webView ->
                         val url = currentStream?.url
                         if (url != null && webView.url != url) {
-                            webView.loadUrl(url)
+                            val headers = mapOf("Referer" to "https://rdcanais.org/")
+                            webView.loadUrl(url, headers)
                         }
                     },
                     modifier = Modifier.fillMaxSize()
