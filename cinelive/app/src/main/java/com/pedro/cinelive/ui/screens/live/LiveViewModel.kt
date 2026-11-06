@@ -12,6 +12,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class LiveViewModel(
@@ -209,11 +210,18 @@ class LiveViewModel(
     }
 
     fun tuneChannelById(channelId: String) {
-        val all = _allChannels.value
-        val found = all.find { it.id.equals(channelId, ignoreCase = true) }
-            ?: all.find { it.name.contains(channelId, ignoreCase = true) }
-        if (found != null) {
-            selectChannel(found)
+        closeCatalogGrid()
+        closeDrawer()
+        viewModelScope.launch {
+            if (_allChannels.value.isEmpty()) {
+                channels.first { it.isNotEmpty() }
+            }
+            val all = _allChannels.value
+            val found = all.find { it.id.equals(channelId, ignoreCase = true) }
+                ?: all.find { it.name.contains(channelId, ignoreCase = true) }
+            if (found != null) {
+                selectChannel(found)
+            }
         }
     }
 

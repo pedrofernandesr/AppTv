@@ -185,6 +185,20 @@ fun LivePlayerScreen(
             .focusable()
             .onKeyEvent { keyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown) {
+                    if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK) {
+                        if (isCatalogGridOpen) {
+                            viewModel.closeCatalogGrid()
+                            return@onKeyEvent true
+                        }
+                        if (isDrawerOpen) {
+                            viewModel.closeDrawer()
+                            return@onKeyEvent true
+                        }
+                        if (isEpgBannerVisible) {
+                            viewModel.hideEpgBanner()
+                            return@onKeyEvent true
+                        }
+                    }
                     if (isDrawerOpen || isCatalogGridOpen) {
                         // Quando o menu ou a grade estão abertos, o D-pad navega livremente entre os componentes
                         return@onKeyEvent false
@@ -702,6 +716,7 @@ fun LivePlayerScreen(
                     viewModel.selectChannel(it)
                     viewModel.closeCatalogGrid()
                 },
+                onClose = { viewModel.closeCatalogGrid() },
                 firstFocusRequester = catalogFocusRequester,
                 modifier = Modifier.fillMaxSize()
             )

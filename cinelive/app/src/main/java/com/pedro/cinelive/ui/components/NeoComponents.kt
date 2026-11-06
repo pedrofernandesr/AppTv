@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.pedro.cinelive.data.epg.DynamicEpgProvider
 import com.pedro.cinelive.data.model.CategoryItem
 import com.pedro.cinelive.data.model.ChannelItem
 import com.pedro.cinelive.ui.theme.NeoColors
@@ -165,16 +166,14 @@ fun NeoChannelCard(
                     }
                 }
 
-                val currentShow = channel.epg?.current?.title
-                if (!currentShow.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = currentShow,
-                        style = NeoType.EpgTime,
-                        color = NeoColors.TextSecondary,
-                        maxLines = 1
-                    )
-                }
+                val activeEpg = remember(channel) { DynamicEpgProvider.getActiveEpg(channel) }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = activeEpg.title,
+                    style = NeoType.EpgTime,
+                    color = NeoColors.TextSecondary,
+                    maxLines = 1
+                )
             }
         }
     }
@@ -311,30 +310,26 @@ fun NeoEpgBanner(
                     }
                 }
 
-                val currentProgram = channel.epg?.current
-                val nextProgram = channel.epg?.next
+                val activeEpg = remember(channel) { DynamicEpgProvider.getActiveEpg(channel) }
 
-                if (currentProgram != null && !currentProgram.title.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = activeEpg.title,
+                    style = NeoType.CardTitle,
+                    color = NeoColors.TextPrimary
+                )
+
+                Text(
+                    text = activeEpg.formattedTime,
+                    style = NeoType.EpgTime,
+                    color = NeoColors.TextSecondary
+                )
+
+                if (!activeEpg.nextTitle.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
+                    val nextSuffix = if (!activeEpg.nextFormattedTime.isNullOrBlank()) " (${activeEpg.nextFormattedTime})" else ""
                     Text(
-                        text = currentProgram.title,
-                        style = NeoType.CardTitle,
-                        color = NeoColors.TextPrimary
-                    )
-
-                    if (!currentProgram.formattedTime.isNullOrBlank()) {
-                        Text(
-                            text = currentProgram.formattedTime,
-                            style = NeoType.EpgTime,
-                            color = NeoColors.TextSecondary
-                        )
-                    }
-                }
-
-                if (nextProgram != null && !nextProgram.title.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "A SEGUIR: ${nextProgram.title.uppercase()}",
+                        text = "A SEGUIR: ${activeEpg.nextTitle.uppercase()}$nextSuffix",
                         style = NeoType.EpgTime,
                         color = NeoColors.TextMuted
                     )
@@ -484,9 +479,9 @@ fun NeoCatalogCard(
             )
 
             // Programa Atual
-            val currentShow = channel.epg?.current?.title
+            val activeEpg = remember(channel) { DynamicEpgProvider.getActiveEpg(channel) }
             Text(
-                text = if (!currentShow.isNullOrBlank()) currentShow else "Programação Ao Vivo",
+                text = activeEpg.title,
                 style = NeoType.EpgTime,
                 color = if (isFocused) NeoColors.TextPrimary else NeoColors.TextSecondary,
                 maxLines = 1
@@ -506,6 +501,7 @@ fun NeoCatalogGridOverlay(
     currentChannel: ChannelItem?,
     onCategorySelect: (CategoryItem) -> Unit,
     onChannelSelect: (ChannelItem) -> Unit,
+    onClose: () -> Unit = {},
     modifier: Modifier = Modifier,
     firstFocusRequester: FocusRequester? = null
 ) {
@@ -535,11 +531,27 @@ fun NeoCatalogGridOverlay(
                 )
             }
 
-            Text(
-                text = "[ D-PAD: NAVEGAR // OK: ASSISTIR // VOLTAR: FECHAR ]",
-                style = NeoType.Badge,
-                color = NeoColors.Yellow
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "[ D-PAD: NAVEGAR // OK: ASSISTIR ]",
+                    style = NeoType.Badge,
+                    color = NeoColors.Yellow
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Box(
+                    modifier = Modifier
+                        .background(NeoColors.SurfaceFocused, RectangleShape)
+                        .border(1.dp, NeoColors.Yellow, RectangleShape)
+                        .clickable(onClick = onClose)
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "[ VOLTAR AO VÍDEO ]",
+                        style = NeoType.Badge,
+                        color = NeoColors.Yellow
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
