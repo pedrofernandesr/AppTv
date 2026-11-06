@@ -385,6 +385,36 @@ class ReiDosCanaisRepository(
             return@withContext res
         }
 
+        // 2. Afiliadas da Rede Globo: direciona para o sinal oficial verificado do Rei dos Embeds
+        // Evita servidores regionais offline (ex: localhost.tattoo que retorna erro 522 e trava no Maranhão e Paraná)
+        if (channelKey.contains("globo") && !channelKey.contains("globonews") && !channelKey.contains("globoplay")) {
+            val rdembedSlug = when {
+                channelKey.contains("rj") || channelKey.contains("rio") -> "globorj"
+                channelKey.contains("sp") || channelKey.contains("paulo") -> "globosp"
+                channelKey.contains("mg") || channelKey.contains("minas") -> "globomg"
+                channelKey.contains("ba") || channelKey.contains("bahia") -> "globoba"
+                channelKey.contains("df") || channelKey.contains("distrito") -> "globodf"
+                channelKey.contains("go") || channelKey.contains("goias") -> "globogo"
+                channelKey.contains("rs") || channelKey.contains("sul") -> "globors"
+                channelKey.contains("am") || channelKey.contains("amazonas") -> "globoam"
+                channelKey.contains("al") || channelKey.contains("alagoas") -> "globoal"
+                channelKey.contains("ms") -> "globoms"
+                else -> "globosp" // Fallback nacional seguro para Maranhão, Paraná e demais praças com servidor regional indisponível
+            }
+            val targetUrl = "https://v1.rdembed.lat/$rdembedSlug"
+            Log.d(TAG, "Canal Globo ${channel.name} mapeado com segurança para Rei dos Embeds: $targetUrl")
+            val res = ResolvedStream(
+                type = StreamType.WEB_EMBED,
+                url = targetUrl,
+                headers = mapOf(
+                    "Referer" to "https://reidosembeds.lat/",
+                    "Origin" to "https://reidosembeds.lat"
+                )
+            )
+            streamCache[channelKey] = res
+            return@withContext res
+        }
+
         val embed = channel.embeds.firstOrNull()
         val embedUrl = embed?.embedUrl ?: "https://rdcanais.org/${channel.id}"
 
@@ -459,6 +489,19 @@ class ReiDosCanaisRepository(
                         // Caso C: Iframe aponta para player interno (ex: localhost.tattoo/globo/player.php)
                         // Enviamos diretamente a URL interna para a WebView, evitando o rdcanais.org que bloqueia
                         if (iframeSrc.isNotBlank()) {
+                            if (iframeSrc.contains("localhost.tattoo", ignoreCase = true)) {
+                                Log.w(TAG, "Host localhost.tattoo detectado como instável para ${channel.name}, usando fallback seguro do Rei dos Embeds")
+                                val res = ResolvedStream(
+                                    type = StreamType.WEB_EMBED,
+                                    url = "https://v1.rdembed.lat/globosp",
+                                    headers = mapOf(
+                                        "Referer" to "https://reidosembeds.lat/",
+                                        "Origin" to "https://reidosembeds.lat"
+                                    )
+                                )
+                                streamCache[channelKey] = res
+                                return@withContext res
+                            }
                             Log.d(TAG, "Player interno direcionado para WebView TV: $iframeSrc")
                             val res = ResolvedStream(
                                 type = StreamType.WEB_EMBED,

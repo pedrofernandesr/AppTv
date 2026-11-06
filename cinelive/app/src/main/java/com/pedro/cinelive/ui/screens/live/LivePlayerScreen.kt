@@ -279,8 +279,52 @@ fun LivePlayerScreen(
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
                                 setBackgroundColor(AndroidColor.BLACK)
-                                isFocusable = true
-                                isFocusableInTouchMode = true
+                                isFocusable = false
+                                isFocusableInTouchMode = false
+                                descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                                setOnKeyListener { _, keyCode, event ->
+                                    if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                                        when (keyCode) {
+                                            android.view.KeyEvent.KEYCODE_BACK -> {
+                                                if (isCatalogGridOpen) {
+                                                    viewModel.closeCatalogGrid()
+                                                    true
+                                                } else if (isDrawerOpen) {
+                                                    viewModel.closeDrawer()
+                                                    true
+                                                } else {
+                                                    viewModel.openDrawer()
+                                                    true
+                                                }
+                                            }
+                                            android.view.KeyEvent.KEYCODE_DPAD_LEFT, android.view.KeyEvent.KEYCODE_MENU -> {
+                                                viewModel.openDrawer()
+                                                true
+                                            }
+                                            android.view.KeyEvent.KEYCODE_DPAD_UP, android.view.KeyEvent.KEYCODE_PROG_RED -> {
+                                                viewModel.openCatalogGrid()
+                                                true
+                                            }
+                                            android.view.KeyEvent.KEYCODE_DPAD_DOWN, android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                                                viewModel.nextChannel()
+                                                true
+                                            }
+                                            android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
+                                                viewModel.previousChannel()
+                                                true
+                                            }
+                                            android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER -> {
+                                                viewModel.showEpgBanner()
+                                                true
+                                            }
+                                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT, android.view.KeyEvent.KEYCODE_INFO -> {
+                                                viewModel.showEpgBanner()
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    } else false
+                                }
                                 try {
                                     WebView.setWebContentsDebuggingEnabled(true)
                                     CookieManager.getInstance().setAcceptCookie(true)
@@ -431,12 +475,6 @@ fun LivePlayerScreen(
                                                         return;
                                                     }
 
-                                                    // Se houver botão de retry do player (caso de erro temporário), clica nele
-                                                    var retry = document.getElementById('retryBtn');
-                                                    if (retry && retry.offsetParent !== null) {
-                                                        try { retry.click(); } catch(e) {}
-                                                    }
-
                                                     // 2. Não está rodando: tenta JWPlayer sem fullscreen
                                                     try {
                                                         if (window.jwplayer) {
@@ -469,7 +507,7 @@ fun LivePlayerScreen(
                                                     }
 
                                                     // 4. Clica SOMENTE no ícone de play se não estiver rodando (NUNCA clica no player ou vídeo!)
-                                                    var playIcon = document.querySelector('.jw-display-icon-container, .jw-icon-playback, .jw-display-icon-display, .jw-button-color');
+                                                    var playIcon = document.querySelector('.jw-display-icon-container, .jw-icon-playback, .jw-display-icon-display, .jw-button-color, .vjs-big-play-button, .plyr__control--overlaid, button[class*="play"], div[class*="play-btn"]');
                                                     if (playIcon) {
                                                         try { playIcon.click(); } catch(e) {}
                                                     }
@@ -528,6 +566,15 @@ fun LivePlayerScreen(
                         },
                         modifier = Modifier.fillMaxSize()
                     )
+
+                    DisposableEffect(currentStream) {
+                        onDispose {
+                            try {
+                                activeWebView?.stopLoading()
+                                activeWebView?.loadUrl("about:blank")
+                            } catch (e: Exception) {}
+                        }
+                    }
 
                     if (webViewError != null) {
                         Box(
