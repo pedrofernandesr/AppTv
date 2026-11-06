@@ -1,5 +1,6 @@
 package com.pedro.cinelive
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -29,6 +30,10 @@ class MainActivity : ComponentActivity() {
             or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         )
 
+        intent?.getStringExtra("channel_id")?.let { id ->
+            if (id.isNotBlank()) liveViewModel.tuneChannelById(id)
+        }
+
         setContent {
             CineLiveTheme {
                 LivePlayerScreen(
@@ -36,6 +41,14 @@ class MainActivity : ComponentActivity() {
                     onExitApp = { finish() }
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra("channel_id")?.let { id ->
+            if (id.isNotBlank()) liveViewModel.tuneChannelById(id)
         }
     }
 }

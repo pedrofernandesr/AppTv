@@ -43,6 +43,9 @@ class LiveViewModel(
     private val _isDrawerOpen = MutableStateFlow(false)
     val isDrawerOpen: StateFlow<Boolean> = _isDrawerOpen.asStateFlow()
 
+    private val _isCatalogGridOpen = MutableStateFlow(false)
+    val isCatalogGridOpen: StateFlow<Boolean> = _isCatalogGridOpen.asStateFlow()
+
     private val _isEpgBannerVisible = MutableStateFlow(false)
     val isEpgBannerVisible: StateFlow<Boolean> = _isEpgBannerVisible.asStateFlow()
 
@@ -134,11 +137,13 @@ class LiveViewModel(
     fun selectChannel(channel: ChannelItem) {
         if (_currentChannel.value?.id == channel.id && _currentStream.value != null) {
             _isDrawerOpen.value = false
+            _isCatalogGridOpen.value = false
             showEpgBanner(5000L)
             return
         }
         _currentChannel.value = channel
         _isDrawerOpen.value = false
+        _isCatalogGridOpen.value = false
         _isLoading.value = true
         showEpgBanner(5000L)
 
@@ -180,10 +185,36 @@ class LiveViewModel(
 
     fun openDrawer() {
         _isDrawerOpen.value = true
+        _isCatalogGridOpen.value = false
     }
 
     fun closeDrawer() {
         _isDrawerOpen.value = false
+    }
+
+    fun openCatalogGrid() {
+        _isCatalogGridOpen.value = true
+        _isDrawerOpen.value = false
+    }
+
+    fun closeCatalogGrid() {
+        _isCatalogGridOpen.value = false
+    }
+
+    fun toggleCatalogGrid() {
+        _isCatalogGridOpen.value = !_isCatalogGridOpen.value
+        if (_isCatalogGridOpen.value) {
+            _isDrawerOpen.value = false
+        }
+    }
+
+    fun tuneChannelById(channelId: String) {
+        val all = _allChannels.value
+        val found = all.find { it.id.equals(channelId, ignoreCase = true) }
+            ?: all.find { it.name.contains(channelId, ignoreCase = true) }
+        if (found != null) {
+            selectChannel(found)
+        }
     }
 
     fun showEpgBanner(durationMs: Long = 5000L) {

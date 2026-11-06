@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.compose.runtime.collectAsState
@@ -52,6 +53,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.pedro.cinelive.data.model.StreamType
+import com.pedro.cinelive.ui.components.NeoCard
+import com.pedro.cinelive.ui.components.NeoCatalogGridOverlay
 import com.pedro.cinelive.ui.components.NeoCategoryChip
 import com.pedro.cinelive.ui.components.NeoChannelCard
 import com.pedro.cinelive.ui.components.NeoEpgBanner
@@ -75,11 +78,13 @@ fun LivePlayerScreen(
     val currentChannel by viewModel.currentChannel.collectAsState()
     val currentStream by viewModel.currentStream.collectAsState()
     val isDrawerOpen by viewModel.isDrawerOpen.collectAsState()
+    val isCatalogGridOpen by viewModel.isCatalogGridOpen.collectAsState()
     val isEpgBannerVisible by viewModel.isEpgBannerVisible.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
     val rootFocusRequester = remember { FocusRequester() }
     val drawerFocusRequester = remember { FocusRequester() }
+    val catalogFocusRequester = remember { FocusRequester() }
     val channelListState = rememberLazyListState()
     var activeWebView by remember { mutableStateOf<WebView?>(null) }
     var webViewError by remember { mutableStateOf<String?>(null) }
@@ -135,18 +140,24 @@ fun LivePlayerScreen(
         }
     }
 
-    // Foca na raiz ou no drawer dependendo do estado e posiciona no canal atual
-    LaunchedEffect(isDrawerOpen) {
-        if (!isDrawerOpen) {
-            rootFocusRequester.requestFocus()
-        } else {
-            drawerFocusRequester.requestFocus()
-            val current = currentChannel
-            if (current != null) {
-                val idx = channels.indexOfFirst { it.id == current.id }
-                if (idx >= 0) {
-                    channelListState.scrollToItem(idx)
+    // Foca na raiz, no catálogo ou no drawer dependendo do estado e posiciona no canal atual
+    LaunchedEffect(isDrawerOpen, isCatalogGridOpen) {
+        when {
+            isCatalogGridOpen -> {
+                catalogFocusRequester.requestFocus()
+            }
+            isDrawerOpen -> {
+                drawerFocusRequester.requestFocus()
+                val current = currentChannel
+                if (current != null) {
+                    val idx = channels.indexOfFirst { it.id == current.id }
+                    if (idx >= 0) {
+                        channelListState.scrollToItem(idx)
+                    }
                 }
+            }
+            else -> {
+                rootFocusRequester.requestFocus()
             }
         }
     }
@@ -159,6 +170,7 @@ fun LivePlayerScreen(
     // Interceptação de Botão Voltar (Back)
     BackHandler {
         when {
+            isCatalogGridOpen -> viewModel.closeCatalogGrid()
             isDrawerOpen -> viewModel.closeDrawer()
             isEpgBannerVisible -> viewModel.hideEpgBanner()
             else -> onExitApp()
@@ -173,12 +185,16 @@ fun LivePlayerScreen(
             .focusable()
             .onKeyEvent { keyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown) {
-                    if (isDrawerOpen) {
-                        // Quando o menu está aberto, o D-pad navega livremente entre categorias e canais
+                    if (isDrawerOpen || isCatalogGridOpen) {
+                        // Quando o menu ou a grade estão abertos, o D-pad navega livremente entre os componentes
                         return@onKeyEvent false
                     }
                     when (keyEvent.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
+                        KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_PROG_RED -> {
+                            viewModel.openCatalogGrid()
+                            true
+                        }
+                        KeyEvent.KEYCODE_CHANNEL_UP -> {
                             viewModel.previousChannel()
                             true
                         }
@@ -618,6 +634,28 @@ fun LivePlayerScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Botão de atalho para alternar para a grade estilo catálogo
+                NeoCard(
+                    onClick = { viewModel.openCatalogGrid() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "[ ABRIR CATÁLOGO EM GRADE ]",
+                            style = NeoType.CardTitle.copy(fontSize = 12.sp),
+                            color = NeoColors.Yellow
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 // Lista de Canais da Categoria
                 LazyColumn(
                     state = channelListState,
@@ -641,6 +679,32 @@ fun LivePlayerScreen(
                     color = NeoColors.TextMuted
                 )
             }
+        }
+
+        // ==========================================
+        // 5. CATÁLOGO COMPLETO EM GRADE (ESTILO FILMES / TABELA)
+        // ==========================================
+        AnimatedVisibility(
+            visible = isCatalogGridOpen,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 6 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 6 }),
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(4f)
+        ) {
+            NeoCatalogGridOverlay(
+                channels = channels,
+                categories = categories,
+                selectedCategory = selectedCategory,
+                currentChannel = currentChannel,
+                onCategorySelect = { viewModel.selectCategory(it) },
+                onChannelSelect = {
+                    viewModel.selectChannel(it)
+                    viewModel.closeCatalogGrid()
+                },
+                firstFocusRequester = catalogFocusRequester,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }

@@ -6,11 +6,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -19,9 +26,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.pedro.cinelive.data.model.CategoryItem
 import com.pedro.cinelive.data.model.ChannelItem
 import com.pedro.cinelive.ui.theme.NeoColors
 import com.pedro.cinelive.ui.theme.NeoDimens
@@ -353,5 +362,220 @@ fun NeoBadge(
             style = NeoType.Badge,
             color = accentColor
         )
+    }
+}
+
+/**
+ * Card de canal em formato de grade/catálogo de filmes (tabela visual ampla).
+ */
+@Composable
+fun NeoCatalogCard(
+    channel: ChannelItem,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) NeoMotion.CardScale else 1f,
+        animationSpec = tween(NeoMotion.FocusMs),
+        label = "neoCatalogCardScale"
+    )
+
+    Box(
+        modifier = modifier
+            .zIndex(if (isFocused) 2f else 0f)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .drawBehind {
+                if (isFocused) {
+                    drawRect(
+                        color = NeoColors.Yellow,
+                        topLeft = Offset(NeoDimens.ShadowFocus.toPx(), NeoDimens.ShadowFocus.toPx()),
+                        size = size
+                    )
+                }
+            }
+            .background(
+                if (isFocused) NeoColors.SurfaceFocused else if (isCurrent) NeoColors.Surface else NeoColors.Bg,
+                RectangleShape
+            )
+            .border(
+                width = if (isFocused) NeoDimens.BorderFocus else if (isCurrent) 2.dp else NeoDimens.BorderRest,
+                color = if (isFocused || isCurrent) NeoColors.Yellow else NeoColors.BorderRest,
+                shape = RectangleShape
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Área superior: Logo e Badges
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(86.dp)
+                    .background(Color.Black, RectangleShape)
+                    .border(1.dp, if (isFocused) NeoColors.Yellow else NeoColors.BorderRest, RectangleShape)
+                    .padding(6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!channel.logoUrl.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(channel.logoUrl)
+                            .crossfade(100)
+                            .build(),
+                        contentDescription = channel.name,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        text = channel.name.take(4).uppercase(),
+                        style = NeoType.Section,
+                        color = NeoColors.Yellow
+                    )
+                }
+
+                // Categoria
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .background(NeoColors.Bg.copy(alpha = 0.85f), RectangleShape)
+                        .border(1.dp, NeoColors.BorderRest, RectangleShape)
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = channel.category?.uppercase() ?: "CANAL",
+                        style = NeoType.Badge.copy(color = NeoColors.Yellow, fontSize = 9.sp)
+                    )
+                }
+
+                // Badge NO AR
+                if (isCurrent) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .background(NeoColors.Red, RectangleShape)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "NO AR",
+                            style = NeoType.Badge.copy(color = Color.White)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Nome do Canal
+            Text(
+                text = channel.name.uppercase(),
+                style = NeoType.CardTitle,
+                color = if (isFocused) NeoColors.Yellow else NeoColors.TextPrimary,
+                maxLines = 1
+            )
+
+            // Programa Atual
+            val currentShow = channel.epg?.current?.title
+            Text(
+                text = if (!currentShow.isNullOrBlank()) currentShow else "Programação Ao Vivo",
+                style = NeoType.EpgTime,
+                color = if (isFocused) NeoColors.TextPrimary else NeoColors.TextSecondary,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+/**
+ * Visualização completa em Grade/Catálogo (tabela de filmes e séries)
+ */
+@Composable
+fun NeoCatalogGridOverlay(
+    channels: List<ChannelItem>,
+    categories: List<CategoryItem>,
+    selectedCategory: CategoryItem?,
+    currentChannel: ChannelItem?,
+    onCategorySelect: (CategoryItem) -> Unit,
+    onChannelSelect: (ChannelItem) -> Unit,
+    modifier: Modifier = Modifier,
+    firstFocusRequester: FocusRequester? = null
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(NeoColors.Bg.copy(alpha = 0.98f), RectangleShape)
+            .border(4.dp, NeoColors.Yellow, RectangleShape)
+            .padding(horizontal = 32.dp, vertical = 24.dp)
+    ) {
+        // Cabeçalho da Grade
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "CINELIVE // GRADE COMPLETA DE CANAIS",
+                    style = NeoType.Section,
+                    color = NeoColors.Yellow
+                )
+                Text(
+                    text = "[ ${channels.size} CANAIS DISPONÍVEIS NA CATEGORIA ]",
+                    style = NeoType.Badge,
+                    color = NeoColors.TextMuted
+                )
+            }
+
+            Text(
+                text = "[ D-PAD: NAVEGAR // OK: ASSISTIR // VOLTAR: FECHAR ]",
+                style = NeoType.Badge,
+                color = NeoColors.Yellow
+            )
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Filtro de Categorias em Linha
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            itemsIndexed(categories, key = { _, cat -> cat.id }) { index, cat ->
+                NeoCategoryChip(
+                    text = cat.name,
+                    isSelected = cat.id == selectedCategory?.id,
+                    onClick = { onCategorySelect(cat) },
+                    modifier = if (index == 0 && firstFocusRequester != null) Modifier.focusRequester(firstFocusRequester) else Modifier
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Grade de Canais (4 colunas para TV)
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            items(channels, key = { it.id }) { ch ->
+                NeoCatalogCard(
+                    channel = ch,
+                    isCurrent = ch.id == currentChannel?.id,
+                    onClick = { onChannelSelect(ch) },
+                    modifier = Modifier.height(160.dp)
+                )
+            }
+        }
     }
 }
