@@ -212,31 +212,34 @@ object DynamicEpgProvider {
         val now = Calendar.getInstance()
         val nowSeconds = System.currentTimeMillis() / 1000
 
-        // 1. Verifica se a API forneceu um EPG com timestamps válidos e não expirados
+        // 1. Prioridade Máxima: EPG Oficial da API Rei dos Canais (quando estiver online e com dados atualizados)
         val current = channel.epg?.current
         if (current != null && current.endTime != null && current.endTime > nowSeconds) {
-            val startTime = current.startTime ?: nowSeconds
-            if (startTime <= nowSeconds + 600) {
-                val timeFormat = SimpleDateFormat("HH:mm", Locale("pt", "BR"))
-                val startStr = timeFormat.format(Date(startTime * 1000))
-                val endStr = timeFormat.format(Date(current.endTime * 1000))
-                val formatted = "Hoje, das $startStr às $endStr"
+            val startTime = current.startTime ?: (nowSeconds - 1800)
+            val timeFormat = SimpleDateFormat("HH:mm", Locale("pt", "BR"))
+            val startStr = timeFormat.format(Date(startTime * 1000))
+            val endStr = timeFormat.format(Date(current.endTime * 1000))
 
-                val next = channel.epg.next
-                val nextTitle = next?.title
-                val nextFormatted = if (next?.startTime != null && next.endTime != null) {
-                    val nStart = timeFormat.format(Date(next.startTime * 1000))
-                    val nEnd = timeFormat.format(Date(next.endTime * 1000))
-                    "das $nStart às $nEnd"
-                } else null
-
-                return ActiveEpgInfo(
-                    title = current.title ?: "Programação Ao Vivo",
-                    formattedTime = formatted,
-                    nextTitle = nextTitle,
-                    nextFormattedTime = nextFormatted
-                )
+            val formatted = if (!current.formattedTime.isNullOrBlank()) {
+                current.formattedTime
+            } else {
+                "Hoje, das $startStr às $endStr"
             }
+
+            val next = channel.epg.next
+            val nextTitle = next?.title
+            val nextFormatted = if (next?.startTime != null && next.endTime != null) {
+                val nStart = timeFormat.format(Date(next.startTime * 1000))
+                val nEnd = timeFormat.format(Date(next.endTime * 1000))
+                "das $nStart às $nEnd"
+            } else null
+
+            return ActiveEpgInfo(
+                title = current.title ?: "Programação Ao Vivo",
+                formattedTime = formatted,
+                nextTitle = nextTitle,
+                nextFormattedTime = nextFormatted
+            )
         }
 
         // 2. Se o EPG da API está vencido/expirado, resolve pela Grade Dinâmica em Tempo Real
