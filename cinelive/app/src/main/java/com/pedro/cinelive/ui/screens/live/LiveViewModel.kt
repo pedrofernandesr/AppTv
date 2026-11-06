@@ -20,8 +20,10 @@ class LiveViewModel(
 
     companion object {
         private const val TAG = "LiveViewModel"
-        private const val DEFAULT_CATEGORY = "Canais Abertos"
+        private const val ALL_CHANNELS_CAT = "Todos os Canais"
     }
+
+    private val _allChannels = MutableStateFlow<List<ChannelItem>>(emptyList())
 
     private val _categories = MutableStateFlow<List<CategoryItem>>(emptyList())
     val categories: StateFlow<List<CategoryItem>> = _categories.asStateFlow()
@@ -62,23 +64,57 @@ class LiveViewModel(
             _isLoading.value = true
             _errorMessage.value = null
 
+            // 1. Busca catálogo completo de todos os canais (null = todos)
+            val chanResult = repository.fetchChannels(null)
+            val allChans = if (chanResult.isSuccess) chanResult.getOrDefault(emptyList()) else emptyList()
+            _allChannels.value = allChans
+
+            // 2. Busca categorias da API
             val catResult = repository.fetchCategories()
-            if (catResult.isSuccess) {
-                val cats = catResult.getOrDefault(emptyList())
-                _categories.value = cats
+            val rawCategories = if (catResult.isSuccess) catResult.getOrDefault(emptyList()) else emptyList()
 
-                // Seleciona preferencialmente a categoria "Canais Abertos"
-                val defaultCat = cats.find { it.name.equals(DEFAULT_CATEGORY, ignoreCase = true) }
-                    ?: cats.firstOrNull()
+            // 3. Monta lista de categorias com "Todos os Canais" e "Filmes e Séries" em destaque
+            val orderedCategories = mutableListOf<CategoryItem>()
+            orderedCategories.add(CategoryItem(id = 0, name = ALL_CHANNELS_CAT))
 
-                _selectedCategory.value = defaultCat
+            val priorityOrder = listOf(
+                "Filmes e Séries",
+                "Canais Abertos",
+                "Infantil",
+                "Esportes",
+                "Documentários",
+                "Notícias",
+                "Entretenimento"
+            )
 
-                if (defaultCat != null) {
-                    loadChannelsForCategory(defaultCat, autoPlayFirst = true)
+            for (name in priorityOrder) {
+                val found = rawCategories.find { it.name.equals(name, ignoreCase = true) }
+                if (found != null && orderedCategories.none { it.id == found.id }) {
+                    orderedCategories.add(found)
                 }
-            } else {
-                _errorMessage.value = "Erro ao carregar categorias. Verifique a conexão."
-                _isLoading.value = false
+            }
+
+            for (cat in rawCategories) {
+                if (orderedCategories.none { it.id == cat.id }) {
+                    orderedCategories.add(cat)
+                }
+            }
+
+            _categories.value = orderedCategories
+
+            // Categoria padrão selecionada: "Todos os Canais"
+            val defaultCat = orderedCategories.firstOrNull()
+            _selectedCategory.value = defaultCat
+            _channels.value = allChans
+            _isLoading.value = false
+
+            // Seleciona canal inicial para reprodução imediata com vídeo ao vivo
+            if (allChans.isNotEmpty() && _currentChannel.value == null) {
+                val preferred = allChans.find { it.id.equals("sbt", ignoreCase = true) }
+                    ?: allChans.find { it.id.equals("tvcultura", ignoreCase = true) }
+                    ?: allChans.find { it.id.startsWith("globo", ignoreCase = true) }
+                    ?: allChans.first()
+                selectChannel(preferred)
             }
         }
     }
@@ -86,29 +122,12 @@ class LiveViewModel(
     fun selectCategory(category: CategoryItem) {
         if (_selectedCategory.value?.id == category.id) return
         _selectedCategory.value = category
-        loadChannelsForCategory(category, autoPlayFirst = false)
-    }
 
-    private fun loadChannelsForCategory(category: CategoryItem, autoPlayFirst: Boolean) {
-        viewModelScope.launch {
-            _isLoading.value = true
-            val result = repository.fetchChannels(category.name)
-            if (result.isSuccess) {
-                val channelList = result.getOrDefault(emptyList())
-                _channels.value = channelList
-                _isLoading.value = false
-
-                if (autoPlayFirst && channelList.isNotEmpty() && _currentChannel.value == null) {
-                    val preferred = channelList.find { it.id.equals("sbt", ignoreCase = true) }
-                        ?: channelList.find { it.id.equals("tvcultura", ignoreCase = true) }
-                        ?: channelList.find { it.id.equals("globo", ignoreCase = true) }
-                        ?: channelList.first()
-                    selectChannel(preferred)
-                }
-            } else {
-                _errorMessage.value = "Erro ao carregar canais de ${category.name}"
-                _isLoading.value = false
-            }
+        val all = _allChannels.value
+        _channels.value = if (category.id == 0) {
+            all
+        } else {
+            all.filter { it.category.equals(category.name, ignoreCase = true) }
         }
     }
 

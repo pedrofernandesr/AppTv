@@ -125,13 +125,25 @@ fun LivePlayerScreen(
         }
     }
 
-    // Foca na raiz ou no drawer dependendo do estado
+    // Foca na raiz ou no drawer dependendo do estado e posiciona no canal atual
     LaunchedEffect(isDrawerOpen) {
         if (!isDrawerOpen) {
             rootFocusRequester.requestFocus()
         } else {
             drawerFocusRequester.requestFocus()
+            val current = currentChannel
+            if (current != null) {
+                val idx = channels.indexOfFirst { it.id == current.id }
+                if (idx >= 0) {
+                    channelListState.scrollToItem(idx)
+                }
+            }
         }
+    }
+
+    // Ao trocar de categoria, reseta rolagem para o início
+    LaunchedEffect(selectedCategory) {
+        channelListState.scrollToItem(0)
     }
 
     // Interceptação de Botão Voltar (Back)
@@ -369,9 +381,9 @@ fun LivePlayerScreen(
                     )
                     .padding(top = NeoDimens.SafeV, bottom = NeoDimens.SafeV, start = 20.dp, end = 20.dp)
             ) {
-                // Cabeçalho do Menu
+                // Cabeçalho do Menu com contagem total de canais
                 Text(
-                    text = "CINELIVE // GUIA",
+                    text = "CINELIVE // GUIA [ ${channels.size} CANAIS ]",
                     style = NeoType.Section,
                     color = NeoColors.Yellow
                 )

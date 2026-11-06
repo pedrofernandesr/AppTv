@@ -9,6 +9,7 @@ import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
@@ -16,6 +17,8 @@ class ReiDosCanaisRepository(
     private val api: ReiDosCanaisApi,
     private val okHttpClient: OkHttpClient
 ) {
+
+    private val streamCache = ConcurrentHashMap<String, ResolvedStream>()
 
     companion object {
         private const val TAG = "ReiDosCanaisRepo"
@@ -68,6 +71,7 @@ class ReiDosCanaisRepository(
             "cartoon-network" to "http://45.162.64.114/CARTOON_NETWORK/index.m3u8",
             "adultswim" to "http://45.162.64.114/ADULT_SWIM/index.m3u8",
             "space" to "http://45.162.64.114/SPACE/index.m3u8",
+            "tnt" to "http://45.162.64.114/TNT/index.m3u8",
             "tntnovelas" to "http://45.162.64.114/TNT_NOVELAS/index.m3u8",
             "sonymovies" to "http://45.162.64.114/SONY_MOVIES/index.m3u8",
             "espn" to "http://45.162.64.114/ESPN_BRASIL/index.m3u8",
@@ -132,7 +136,27 @@ class ReiDosCanaisRepository(
         try {
             val response = api.getChannels(category)
             if (response.success && response.data.isNotEmpty()) {
-                Result.success(response.data)
+                val expandedList = mutableListOf<ChannelItem>()
+                for (channel in response.data) {
+                    if (channel.id.equals("globo", ignoreCase = true) && channel.embeds.size > 1) {
+                        // Expande as afiliadas regionais da Globo (incluindo Globo Maranhão, SP, RJ, etc.)
+                        for (embed in channel.embeds) {
+                            val providerName = embed.provider ?: "Globo"
+                            val slugFromUrl = embed.embedUrl?.substringAfterLast("/")?.lowercase() ?: "globo"
+                            expandedList.add(
+                                channel.copy(
+                                    id = slugFromUrl,
+                                    name = providerName,
+                                    category = "Canais Abertos",
+                                    embeds = listOf(embed)
+                                )
+                            )
+                        }
+                    } else {
+                        expandedList.add(channel)
+                    }
+                }
+                Result.success(expandedList)
             } else {
                 Result.failure(Exception("Nenhum canal retornado para categoria $category"))
             }
@@ -166,14 +190,23 @@ class ReiDosCanaisRepository(
     suspend fun resolveStream(channel: ChannelItem): ResolvedStream = withContext(Dispatchers.IO) {
         val channelKey = channel.id.lowercase().trim()
 
+        // 0. Verifica cache em memória para troca ultra-rápida (0ms)
+        val cached = streamCache[channelKey]
+        if (cached != null) {
+            Log.d(TAG, "Canal ${channel.name} recuperado do cache de stream: ${cached.url}")
+            return@withContext cached
+        }
+
         // 1. Verifica se temos stream direto verificado de alta confiabilidade
         val directUrl = DIRECT_STREAM_MAP[channelKey]
         if (directUrl != null) {
             Log.d(TAG, "Canal ${channel.name} mapeado diretamente para HLS nativo: $directUrl")
-            return@withContext ResolvedStream(
+            val res = ResolvedStream(
                 type = StreamType.DIRECT_M3U8,
                 url = directUrl
             )
+            streamCache[channelKey] = res
+            return@withContext res
         }
 
         val embed = channel.embeds.firstOrNull()
@@ -213,29 +246,35 @@ class ReiDosCanaisRepository(
                                 rawM3u8
                             }
                             Log.d(TAG, "Stream direto .m3u8 extraído de query param: $decodedM3u8")
-                            return@withContext ResolvedStream(
+                            val res = ResolvedStream(
                                 type = StreamType.DIRECT_M3U8,
                                 url = decodedM3u8
                             )
+                            streamCache[channelKey] = res
+                            return@withContext res
                         }
 
                         // Caso B: O src do iframe já é diretamente um .m3u8
                         if (iframeSrc.endsWith(".m3u8", ignoreCase = true) ||
                             (iframeSrc.contains(".m3u8", ignoreCase = true) && !iframeSrc.contains(".html") && !iframeSrc.contains(".php"))) {
-                            return@withContext ResolvedStream(
+                            val res = ResolvedStream(
                                 type = StreamType.DIRECT_M3U8,
                                 url = iframeSrc
                             )
+                            streamCache[channelKey] = res
+                            return@withContext res
                         }
 
                         // Caso C: Iframe aponta para player interno (ex: localhost.tattoo/globo/player.php)
                         // Enviamos diretamente a URL interna para a WebView, evitando o rdcanais.org que bloqueia
                         if (iframeSrc.isNotBlank()) {
                             Log.d(TAG, "Player interno direcionado para WebView TV: $iframeSrc")
-                            return@withContext ResolvedStream(
+                            val res = ResolvedStream(
                                 type = StreamType.WEB_EMBED,
                                 url = iframeSrc
                             )
+                            streamCache[channelKey] = res
+                            return@withContext res
                         }
                     }
 
@@ -245,11 +284,13 @@ class ReiDosCanaisRepository(
                         val foundUrl = m3u8Matcher.group()
                         if (!foundUrl.contains(".html") && !foundUrl.contains(".php")) {
                             Log.d(TAG, "Stream direto .m3u8 extraído do HTML: $foundUrl")
-                            return@withContext ResolvedStream(
+                            val res = ResolvedStream(
                                 type = StreamType.DIRECT_M3U8,
                                 url = foundUrl,
                                 headers = mapOf("Referer" to embedUrl)
                             )
+                            streamCache[channelKey] = res
+                            return@withContext res
                         }
                     }
                 }
@@ -259,9 +300,11 @@ class ReiDosCanaisRepository(
         }
 
         // Fallback final
-        ResolvedStream(
+        val fallback = ResolvedStream(
             type = StreamType.WEB_EMBED,
             url = embedUrl
         )
+        streamCache[channelKey] = fallback
+        fallback
     }
 }
