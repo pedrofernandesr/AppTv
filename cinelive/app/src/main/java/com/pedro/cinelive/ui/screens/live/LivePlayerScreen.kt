@@ -38,11 +38,15 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.delay
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -52,6 +56,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.pedro.cinelive.data.model.ResolvedStream
 import com.pedro.cinelive.data.model.StreamType
 import com.pedro.cinelive.ui.components.NeoCard
 import com.pedro.cinelive.ui.components.NeoCatalogGridOverlay
@@ -81,6 +86,7 @@ fun LivePlayerScreen(
     val isCatalogGridOpen by viewModel.isCatalogGridOpen.collectAsState()
     val isEpgBannerVisible by viewModel.isEpgBannerVisible.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
     val rootFocusRequester = remember { FocusRequester() }
     val drawerFocusRequester = remember { FocusRequester() }
@@ -88,19 +94,24 @@ fun LivePlayerScreen(
     val channelListState = rememberLazyListState()
     var activeWebView by remember { mutableStateOf<WebView?>(null) }
     var webViewError by remember { mutableStateOf<String?>(null) }
+    var exoPlayerError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(currentChannel) {
         webViewError = null
+        exoPlayerError = null
     }
 
-    // Instância otimizada de ExoPlayer para HLS de alta estabilidade
-    val exoPlayer = remember {
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+    // Fábrica de DataSource HTTP persistente para aplicar Referer/Origin por stream (DIRECT_M3U8)
+    val httpDataSourceFactory = remember {
+        DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(10000)
             .setReadTimeoutMs(10000)
+    }
 
+    // Instância otimizada de ExoPlayer para HLS de alta estabilidade
+    val exoPlayer = remember {
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
             .setDataSourceFactory(httpDataSourceFactory)
 
@@ -112,6 +123,12 @@ fun LivePlayerScreen(
                 addListener(object : Player.Listener {
                     override fun onPlayerError(error: PlaybackException) {
                         Log.e("CineLivePlayer", "ExoPlayer error: ${error.errorCodeName} - ${error.message}", error)
+                        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                            seekToDefaultPosition()
+                            prepare()
+                        } else {
+                            exoPlayerError = "Falha na reprodução do stream (${error.errorCodeName})"
+                        }
                     }
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         Log.d("CineLivePlayer", "ExoPlayer state: $playbackState (READY=${Player.STATE_READY})")
@@ -126,10 +143,38 @@ fun LivePlayerScreen(
         }
     }
 
-    // Gerencia fonte do ExoPlayer
+    // Gerenciamento de ciclo de vida do Android (pausa em background / retoma em foreground)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, exoPlayer) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    exoPlayer.playWhenReady = true
+                    activeWebView?.onResume()
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    exoPlayer.playWhenReady = false
+                    activeWebView?.onPause()
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // Gerencia fonte e headers do ExoPlayer
     LaunchedEffect(currentStream) {
         val stream = currentStream
+        exoPlayerError = null
         if (stream != null && stream.type == StreamType.DIRECT_M3U8) {
+            if (stream.headers.isNotEmpty()) {
+                httpDataSourceFactory.setDefaultRequestProperties(stream.headers)
+            } else {
+                httpDataSourceFactory.setDefaultRequestProperties(emptyMap())
+            }
             val mediaItem = MediaItem.fromUri(stream.url)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
@@ -144,20 +189,23 @@ fun LivePlayerScreen(
     LaunchedEffect(isDrawerOpen, isCatalogGridOpen) {
         when {
             isCatalogGridOpen -> {
-                catalogFocusRequester.requestFocus()
+                delay(16)
+                runCatching { catalogFocusRequester.requestFocus() }
             }
             isDrawerOpen -> {
-                drawerFocusRequester.requestFocus()
+                delay(16)
+                runCatching { drawerFocusRequester.requestFocus() }
                 val current = currentChannel
                 if (current != null) {
                     val idx = channels.indexOfFirst { it.id == current.id }
                     if (idx >= 0) {
-                        channelListState.scrollToItem(idx)
+                        runCatching { channelListState.scrollToItem(idx) }
                     }
                 }
             }
             else -> {
-                rootFocusRequester.requestFocus()
+                delay(16)
+                runCatching { rootFocusRequester.requestFocus() }
             }
         }
     }
@@ -167,7 +215,7 @@ fun LivePlayerScreen(
         channelListState.scrollToItem(0)
     }
 
-    // Interceptação de Botão Voltar (Back)
+    // Interceptação centralizada de Botão Voltar (Back)
     BackHandler {
         when {
             isCatalogGridOpen -> viewModel.closeCatalogGrid()
@@ -184,21 +232,7 @@ fun LivePlayerScreen(
             .focusRequester(rootFocusRequester)
             .focusable()
             .onKeyEvent { keyEvent ->
-                if (keyEvent.type == KeyEventType.KeyDown) {
-                    if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK) {
-                        if (isCatalogGridOpen) {
-                            viewModel.closeCatalogGrid()
-                            return@onKeyEvent true
-                        }
-                        if (isDrawerOpen) {
-                            viewModel.closeDrawer()
-                            return@onKeyEvent true
-                        }
-                        if (isEpgBannerVisible) {
-                            viewModel.hideEpgBanner()
-                            return@onKeyEvent true
-                        }
-                    }
+                if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
                     if (isDrawerOpen || isCatalogGridOpen) {
                         // Quando o menu ou a grade estão abertos, o D-pad navega livremente entre os componentes
                         return@onKeyEvent false
@@ -209,11 +243,15 @@ fun LivePlayerScreen(
                             true
                         }
                         KeyEvent.KEYCODE_CHANNEL_UP -> {
-                            viewModel.previousChannel()
+                            viewModel.nextChannel()
                             true
                         }
-                        KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                        KeyEvent.KEYCODE_DPAD_DOWN -> {
                             viewModel.nextChannel()
+                            true
+                        }
+                        KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                            viewModel.previousChannel()
                             true
                         }
                         KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MENU -> {
@@ -225,15 +263,25 @@ fun LivePlayerScreen(
                                 activeWebView?.evaluateJavascript(
                                     """
                                     (function() {
-                                        try { if (window.jwplayer) { window.jwplayer().play(true); } } catch(e){}
+                                        try {
+                                            if (window.jwplayer) {
+                                                var p = window.jwplayer();
+                                                if (p && typeof p.play === 'function') {
+                                                    p.setMute(false);
+                                                    p.play(true);
+                                                }
+                                            }
+                                        } catch(e) {}
                                         var vids = document.querySelectorAll('video');
                                         for (var i = 0; i < vids.length; i++) {
                                             vids[i].muted = false;
-                                            vids[i].play();
+                                            if (vids[i].paused) {
+                                                vids[i].play();
+                                            }
                                         }
-                                        var btns = document.querySelectorAll('.jw-display-icon-container, .jw-icon-playback, #player, video');
-                                        for (var j = 0; j < btns.length; j++) {
-                                            btns[j].click();
+                                        var playBtns = document.querySelectorAll('.jw-display-icon-container, .jw-icon-playback, .vjs-big-play-button, .plyr__control--overlaid, button[class*="play"], div[class*="play-btn"]');
+                                        for (var j = 0; j < playBtns.length; j++) {
+                                            try { playBtns[j].click(); } catch(e) {}
                                         }
                                     })();
                                     """.trimIndent(), null
@@ -256,19 +304,67 @@ fun LivePlayerScreen(
         // ==========================================
         when (currentStream?.type) {
             StreamType.DIRECT_M3U8 -> {
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            player = exoPlayer
-                            useController = false
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            setBackgroundColor(AndroidColor.BLACK)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                player = exoPlayer
+                                useController = false
+                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                setBackgroundColor(AndroidColor.BLACK)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    if (exoPlayerError != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(NeoColors.Bg),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier
+                                    .background(NeoColors.Surface, RectangleShape)
+                                    .border(3.dp, NeoColors.Yellow, RectangleShape)
+                                    .padding(24.dp)
+                            ) {
+                                Text(
+                                    text = "[ SINAL INSTÁVEL NO STREAM ]",
+                                    style = NeoType.CardTitle,
+                                    color = NeoColors.Yellow
+                                )
+                                Text(
+                                    text = exoPlayerError ?: "Falha ao reproduzir o canal direto.",
+                                    style = NeoType.Body,
+                                    color = NeoColors.TextPrimary
+                                )
+                            }
                         }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                    }
+                }
             }
             StreamType.WEB_EMBED -> {
+                val loadStreamInWebView = { wv: WebView, stream: ResolvedStream ->
+                    if (wv.tag != stream.url) {
+                        wv.tag = stream.url
+                        val headers = if (stream.headers.isNotEmpty()) {
+                            stream.headers
+                        } else if (stream.url.contains("rdembed", ignoreCase = true)) {
+                            mapOf(
+                                "Referer" to "https://reidosembeds.lat/",
+                                "Origin" to "https://reidosembeds.lat"
+                            )
+                        } else {
+                            mapOf("Referer" to "https://rdcanais.org/")
+                        }
+                        wv.loadUrl(stream.url, headers)
+                    }
+                }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     AndroidView(
                         factory = { ctx ->
@@ -305,11 +401,15 @@ fun LivePlayerScreen(
                                                 viewModel.openCatalogGrid()
                                                 true
                                             }
-                                            android.view.KeyEvent.KEYCODE_DPAD_DOWN, android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
                                                 viewModel.nextChannel()
                                                 true
                                             }
                                             android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
+                                                viewModel.nextChannel()
+                                                true
+                                            }
+                                            android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
                                                 viewModel.previousChannel()
                                                 true
                                             }
@@ -326,7 +426,9 @@ fun LivePlayerScreen(
                                     } else false
                                 }
                                 try {
-                                    WebView.setWebContentsDebuggingEnabled(true)
+                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                                        WebView.setWebContentsDebuggingEnabled(true)
+                                    }
                                     CookieManager.getInstance().setAcceptCookie(true)
                                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                                 } catch (e: Exception) {
@@ -342,18 +444,21 @@ fun LivePlayerScreen(
                                     cacheMode = WebSettings.LOAD_DEFAULT
                                     setSupportMultipleWindows(false)
                                     javaScriptCanOpenWindowsAutomatically = false
+                                    // MIXED_CONTENT_ALWAYS_ALLOW: necessário para carregar chunks HLS e fontes em http dentro de embeds https
                                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                     userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                                 }
                                 webChromeClient = object : WebChromeClient() {
                                     override fun onPermissionRequest(request: PermissionRequest?) {
-                                        request?.grant(request.resources)
+                                        // Nega permissões de hardware (câmera, microfone, sensores) para embeds externos
+                                        request?.deny()
                                     }
                                     override fun onGeolocationPermissionsShowPrompt(
                                         origin: String?,
                                         callback: GeolocationPermissions.Callback?
                                     ) {
-                                        callback?.invoke(origin, true, false)
+                                        // Nega acesso a geolocalização por padrão
+                                        callback?.invoke(origin, false, false)
                                     }
                                     override fun onShowCustomView(view: android.view.View?, callback: CustomViewCallback?) {
                                         callback?.onCustomViewHidden()
@@ -409,10 +514,19 @@ fun LivePlayerScreen(
                                     }
 
                                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                        val url = request?.url?.toString() ?: return false
-                                        // Bloqueia esquemas externos e intents de lojas/anúncios
-                                        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                                        val uri = request?.url ?: return false
+                                        val scheme = uri.scheme?.lowercase()
+                                        if (scheme != "http" && scheme != "https") {
                                             return true
+                                        }
+                                        if (request.isForMainFrame && !request.hasGesture()) {
+                                            val targetHost = uri.host?.lowercase() ?: ""
+                                            val currentUrl = currentStream?.url ?: ""
+                                            val initialHost = android.net.Uri.parse(currentUrl).host?.lowercase() ?: ""
+                                            if (targetHost.isNotEmpty() && initialHost.isNotEmpty() && !targetHost.contains(initialHost) && !initialHost.contains(targetHost)) {
+                                                Log.w("CineLiveWeb", "Bloqueando redirecionamento de frame principal sem gesto: $uri")
+                                                return true
+                                            }
                                         }
                                         return false
                                     }
@@ -438,7 +552,7 @@ fun LivePlayerScreen(
                                             (function() {
                                                 var css = 'body, html { margin:0!important; padding:0!important; overflow:hidden!important; background:#000!important; width:100vw!important; height:100vh!important; } ' +
                                                           '#player, iframe, video { width:100vw!important; height:100vh!important; position:fixed!important; top:0!important; left:0!important; z-index:999999!important; border:none!important; } ' +
-                                                          '#sb-message, #not-found-message, .ads, [class*="ad-"], [id*="ad-"] { display:none!important; }';
+                                                          '#sb-message, #not-found-message, .ads, .ad-banner, .ad-container, [id*="google_ads"], [id*="banner-ad"] { display:none!important; }';
                                                 var head = document.head || document.getElementsByTagName('head')[0];
                                                 if (head) {
                                                     var style = document.createElement('style');
@@ -529,39 +643,28 @@ fun LivePlayerScreen(
 
                                 val stream = currentStream
                                 if (stream != null && stream.type == StreamType.WEB_EMBED) {
-                                    tag = stream.url
-                                    val headers = if (stream.headers.isNotEmpty()) {
-                                        stream.headers
-                                    } else if (stream.url.contains("rdembed", ignoreCase = true)) {
-                                        mapOf(
-                                            "Referer" to "https://reidosembeds.lat/",
-                                            "Origin" to "https://reidosembeds.lat"
-                                        )
-                                    } else {
-                                        mapOf("Referer" to "https://rdcanais.org/")
-                                    }
-                                    loadUrl(stream.url, headers)
+                                    loadStreamInWebView(this, stream)
                                 }
                             }
                         },
                         update = { webView ->
                             val stream = currentStream
                             if (stream != null && stream.type == StreamType.WEB_EMBED) {
-                                val url = stream.url
-                                if (webView.tag != url) {
-                                    webView.tag = url
-                                    val headers = if (stream.headers.isNotEmpty()) {
-                                        stream.headers
-                                    } else if (stream.url.contains("rdembed", ignoreCase = true)) {
-                                        mapOf(
-                                            "Referer" to "https://reidosembeds.lat/",
-                                            "Origin" to "https://reidosembeds.lat"
-                                        )
-                                    } else {
-                                        mapOf("Referer" to "https://rdcanais.org/")
-                                    }
-                                    webView.loadUrl(url, headers)
-                                }
+                                loadStreamInWebView(webView, stream)
+                            }
+                        },
+                        onRelease = { wv ->
+                            try {
+                                wv.stopLoading()
+                                wv.loadUrl("about:blank")
+                                wv.clearHistory()
+                                wv.removeAllViews()
+                                wv.destroy()
+                            } catch (e: Exception) {
+                                Log.w("CineLivePlayer", "Erro ao destruir WebView no onRelease", e)
+                            }
+                            if (activeWebView === wv) {
+                                activeWebView = null
                             }
                         },
                         modifier = Modifier.fillMaxSize()
@@ -607,14 +710,34 @@ fun LivePlayerScreen(
                 }
             }
             null -> {
-                // Estado de espera ou carregamento do stream
+                // Estado de espera, carregamento ou erro do stream
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(NeoColors.Bg),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isLoading) {
+                    if (errorMessage != null) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier
+                                .background(NeoColors.Surface, RectangleShape)
+                                .border(3.dp, NeoColors.Yellow, RectangleShape)
+                                .padding(24.dp)
+                        ) {
+                            Text(
+                                text = "[ FALHA NA SINTONIA ]",
+                                style = NeoType.CardTitle,
+                                color = NeoColors.Yellow
+                            )
+                            Text(
+                                text = errorMessage ?: "Não foi possível carregar a transmissão.",
+                                style = NeoType.Body,
+                                color = NeoColors.TextPrimary
+                            )
+                        }
+                    } else if (isLoading) {
                         Text(
                             text = "[ SINTONIZANDO SINAL // AGUARDE ]",
                             style = NeoType.CardTitle,

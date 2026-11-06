@@ -8,13 +8,16 @@ import com.pedro.cinelive.data.local.ChannelPreferences
 import com.pedro.cinelive.data.model.CategoryItem
 import com.pedro.cinelive.data.model.ChannelItem
 import com.pedro.cinelive.data.model.ResolvedStream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class LiveViewModel(
     private val repository: ReiDosCanaisRepository = ReiDosCanaisRepository.getInstance()
@@ -71,8 +74,14 @@ class LiveViewModel(
 
             // 1. Busca catálogo completo de todos os canais (null = todos)
             val chanResult = repository.fetchChannels(null)
-            val allChans = if (chanResult.isSuccess) chanResult.getOrDefault(emptyList()) else emptyList()
+            val allChans = chanResult.getOrDefault(emptyList())
             _allChannels.value = allChans
+
+            if (chanResult.isFailure && allChans.isEmpty()) {
+                _errorMessage.value = "Falha ao carregar lista de canais. Verifique sua conexão."
+                _isLoading.value = false
+                return@launch
+            }
 
             // 2. Busca categorias da API
             val catResult = repository.fetchCategories()
@@ -155,21 +164,31 @@ class LiveViewModel(
             return
         }
         _currentChannel.value = channel
+        _currentStream.value = null // Limpa stream anterior para evitar exibir vídeo antigo com nome novo
+        _errorMessage.value = null
         _isDrawerOpen.value = false
         _isCatalogGridOpen.value = false
         _isLoading.value = true
         showEpgBanner(5000L)
 
-        // Cancela resolução anterior e inicia a nova
+        // Cancela resolução anterior e inicia a nova com tratamento seguro de concorrência
         streamResolveJob?.cancel()
         streamResolveJob = viewModelScope.launch {
             try {
                 val stream = repository.resolveStream(channel)
                 _currentStream.value = stream
+                _errorMessage.value = null
+            } catch (e: CancellationException) {
+                // Relança para manter o cancelamento cooperativo de coroutines intacto
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Falha ao resolver stream para canal ${channel.name}", e)
+                _currentStream.value = null
+                _errorMessage.value = "Não foi possível sintonizar ${channel.name}"
             } finally {
-                _isLoading.value = false
+                if (isActive) {
+                    _isLoading.value = false
+                }
             }
         }
     }
@@ -194,6 +213,9 @@ class LiveViewModel(
 
     fun toggleDrawer() {
         _isDrawerOpen.value = !_isDrawerOpen.value
+        if (_isDrawerOpen.value) {
+            _isCatalogGridOpen.value = false
+        }
     }
 
     fun openDrawer() {
@@ -226,7 +248,9 @@ class LiveViewModel(
         closeDrawer()
         viewModelScope.launch {
             if (_allChannels.value.isEmpty()) {
-                channels.first { it.isNotEmpty() }
+                withTimeoutOrNull(5000L) {
+                    isLoading.first { !it }
+                }
             }
             val all = _allChannels.value
             val found = all.find { it.id.equals(channelId, ignoreCase = true) }
