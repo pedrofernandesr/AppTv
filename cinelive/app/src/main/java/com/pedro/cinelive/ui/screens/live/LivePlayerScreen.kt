@@ -79,6 +79,7 @@ fun LivePlayerScreen(
     val drawerFocusRequester = remember { FocusRequester() }
     val channelListState = rememberLazyListState()
     var activeWebView by remember { mutableStateOf<WebView?>(null) }
+    var lastLoadedUrl by remember { mutableStateOf<String?>(null) }
 
     // Instância otimizada de ExoPlayer para HLS de alta estabilidade
     val exoPlayer = remember {
@@ -271,6 +272,10 @@ fun LivePlayerScreen(
                                 ) {
                                     callback?.invoke(origin, true, false)
                                 }
+                                override fun onShowCustomView(view: android.view.View?, callback: CustomViewCallback?) {
+                                    callback?.onCustomViewHidden()
+                                }
+                                override fun onHideCustomView() {}
                             }
                             webViewClient = object : WebViewClient() {
                                 private val antiSandboxPolyfill = """
@@ -282,6 +287,29 @@ fun LivePlayerScreen(
                                                 configurable: true
                                             });
                                         } catch (e) {}
+
+                                        // Polyfill Fullscreen API para impedir que o JWPlayer aborte a reprodução com "TypeError: Fullscreen is not supported"
+                                        var noop = function() { return Promise.resolve(); };
+                                        try {
+                                            if (typeof Element !== 'undefined') {
+                                                Element.prototype.requestFullscreen = noop;
+                                                Element.prototype.webkitRequestFullscreen = noop;
+                                                Element.prototype.webkitEnterFullscreen = noop;
+                                                Element.prototype.mozRequestFullScreen = noop;
+                                                Element.prototype.msRequestFullscreen = noop;
+                                            }
+                                            if (typeof HTMLVideoElement !== 'undefined') {
+                                                HTMLVideoElement.prototype.requestFullscreen = noop;
+                                                HTMLVideoElement.prototype.webkitRequestFullscreen = noop;
+                                                HTMLVideoElement.prototype.webkitEnterFullscreen = noop;
+                                            }
+                                            if (typeof Document !== 'undefined') {
+                                                document.exitFullscreen = noop;
+                                                document.webkitExitFullscreen = noop;
+                                                document.mozCancelFullScreen = noop;
+                                                document.msExitFullscreen = noop;
+                                            }
+                                        } catch(e) {}
                                     })();
                                 """.trimIndent()
 
@@ -318,43 +346,68 @@ fun LivePlayerScreen(
                                             }
 
                                             function autoPlay() {
-                                                // 1. Tenta API do JWPlayer se existir
+                                                // 1. Verifica se já está reproduzindo para NÃO pausar nem re-clicar!
+                                                var isPlaying = false;
                                                 try {
                                                     if (window.jwplayer) {
                                                         var p = (typeof window.jwplayer === 'function') ? (window.jwplayer('player') || window.jwplayer()) : null;
-                                                        if (p && typeof p.play === 'function') {
-                                                            if (!p.getState || p.getState() !== 'playing') {
-                                                                p.setMute(false);
-                                                                p.play(true);
+                                                        if (p && typeof p.getState === 'function') {
+                                                            var s = p.getState();
+                                                            if (s === 'playing' || s === 'buffering') {
+                                                                isPlaying = true;
                                                             }
                                                         }
                                                     }
                                                 } catch(e) {}
 
-                                                // 2. Tenta elementos de vídeo HTML5 padrão
                                                 var vids = document.querySelectorAll('video');
                                                 for (var i = 0; i < vids.length; i++) {
-                                                    var v = vids[i];
-                                                    try {
-                                                        if (v.paused) {
-                                                            v.muted = false;
-                                                            var prom = v.play();
-                                                            if (prom !== undefined) {
-                                                                prom.catch(function() {
-                                                                    v.muted = true;
-                                                                    v.play().then(function() {
-                                                                        setTimeout(function() { v.muted = false; }, 800);
-                                                                    });
-                                                                });
-                                                            }
-                                                        }
-                                                    } catch(e) {}
+                                                    if (!vids[i].paused && vids[i].currentTime > 0) {
+                                                        isPlaying = true;
+                                                        break;
+                                                    }
                                                 }
 
-                                                // 3. Simula clique em botões de play e contêineres de playback
-                                                var clickables = document.querySelectorAll('.jw-display-icon-container, .jw-icon-playback, .jw-preview, button, #player, video');
-                                                for (var j = 0; j < clickables.length; j++) {
-                                                    try { clickables[j].click(); } catch(e) {}
+                                                if (isPlaying) {
+                                                    // Já está rodando o vídeo com sucesso: pára o timer imediatamente
+                                                    clearInterval(timer);
+                                                    return;
+                                                }
+
+                                                // 2. Não está rodando: tenta JWPlayer sem fullscreen
+                                                try {
+                                                    if (window.jwplayer) {
+                                                        var jw = (typeof window.jwplayer === 'function') ? (window.jwplayer('player') || window.jwplayer()) : null;
+                                                        if (jw) {
+                                                            try { jw.setFullscreen(false); } catch(e){}
+                                                            if (typeof jw.play === 'function') {
+                                                                jw.setMute(false);
+                                                                jw.play(true);
+                                                            }
+                                                        }
+                                                    }
+                                                } catch(e) {}
+
+                                                // 3. Tenta elementos de vídeo HTML5 padrão
+                                                for (var k = 0; k < vids.length; k++) {
+                                                    var v = vids[k];
+                                                    if (v.paused) {
+                                                        var prom = v.play();
+                                                        if (prom !== undefined) {
+                                                            prom.catch(function(err) {
+                                                                v.muted = true;
+                                                                v.play().then(function() {
+                                                                    setTimeout(function() { v.muted = false; }, 800);
+                                                                });
+                                                            });
+                                                        }
+                                                    }
+                                                }
+
+                                                // 4. Clica SOMENTE no ícone de play se não estiver rodando (NUNCA clica no player ou vídeo!)
+                                                var playIcon = document.querySelector('.jw-display-icon-container, .jw-icon-playback');
+                                                if (playIcon) {
+                                                    try { playIcon.click(); } catch(e) {}
                                                 }
                                             }
 
@@ -363,7 +416,7 @@ fun LivePlayerScreen(
                                                 count++;
                                                 autoPlay();
                                                 if (count >= 50) { clearInterval(timer); }
-                                            }, 300);
+                                            }, 400);
 
                                             autoPlay();
                                         })();
@@ -374,10 +427,14 @@ fun LivePlayerScreen(
                         }
                     },
                     update = { webView ->
-                        val url = currentStream?.url
-                        if (url != null && webView.url != url) {
-                            val headers = mapOf("Referer" to "https://rdcanais.org/")
-                            webView.loadUrl(url, headers)
+                        val stream = currentStream
+                        if (stream != null && stream.type == StreamType.WEB_EMBED) {
+                            val url = stream.url
+                            if (url != lastLoadedUrl) {
+                                lastLoadedUrl = url
+                                val headers = mapOf("Referer" to "https://rdcanais.org/")
+                                webView.loadUrl(url, headers)
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxSize()
