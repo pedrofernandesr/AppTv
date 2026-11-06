@@ -194,7 +194,9 @@ fun LivePlayerScreen(
             val mediaItem = MediaItem.fromUri(stream.url)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
-            exoPlayer.play()
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                exoPlayer.play()
+            }
         } else {
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
@@ -210,9 +212,10 @@ fun LivePlayerScreen(
                 Log.d("CineLiveFocus", "Foco aplicado com sucesso em $targetName na tentativa $attempt")
                 return
             } else {
-                Log.w("CineLiveFocus", "Tentativa $attempt de focar em $targetName falhou: ${result.exceptionOrNull()?.message}")
+                Log.w("CineLiveFocus", "Tentativa $attempt de focar em $targetName falhou com exceção: ${result.exceptionOrNull()?.message}")
             }
         }
+        Log.e("CineLiveFocus", "FALHA DEFINITIVA: Todas as 3 tentativas de focar em $targetName falharam!")
     }
 
     LaunchedEffect(isDrawerOpen, isCatalogGridOpen) {
@@ -309,8 +312,20 @@ fun LivePlayerScreen(
                                             }
                                         } catch(e) {}
 
-                                        // Se já estiver reproduzindo, não clica em nenhum botão para não pausar!
+                                        // Se já estiver reproduzindo, garante unmute antes do return, sem clicar em botões!
                                         if (isPlaying) {
+                                            for (var m = 0; m < vids.length; m++) {
+                                                vids[m].muted = false;
+                                            }
+                                            try {
+                                                if (window.jwplayer) {
+                                                    var jwp = (typeof window.jwplayer === 'function') ? (window.jwplayer('player') || window.jwplayer()) : null;
+                                                    if (jwp && typeof jwp.setMute === 'function') {
+                                                        jwp.setMute(false);
+                                                    }
+                                                }
+                                            } catch(e) {}
+                                            console.log("[DPAD_CENTER] video ja tocando: playing=" + isPlaying + ", paused=" + (vids.length > 0 ? vids[0].paused : false) + ", muted=" + (vids.length > 0 ? vids[0].muted : false));
                                             return;
                                         }
 
@@ -432,6 +447,9 @@ fun LivePlayerScreen(
                                 isFocusable = false
                                 isFocusableInTouchMode = false
                                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                                if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                                    onPause()
+                                }
                                 try {
                                     if (com.pedro.cinelive.BuildConfig.DEBUG) {
                                         WebView.setWebContentsDebuggingEnabled(true)
@@ -540,6 +558,7 @@ fun LivePlayerScreen(
                                     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                                         super.onReceivedError(view, request, error)
                                         if (request?.isForMainFrame == true) {
+                                            Log.e("CineLiveWeb", "onReceivedError no frame principal: url=${request.url}, errorCode=${error?.errorCode}, desc=${error?.description}")
                                             webViewError = "Sinal indisponível temporariamente no servidor"
                                         }
                                     }
@@ -556,15 +575,38 @@ fun LivePlayerScreen(
                                         view?.evaluateJavascript(
                                             """
                                             (function() {
+                                                if (window.__cineAuto) {
+                                                    clearInterval(window.__cineAuto);
+                                                    window.__cineAuto = null;
+                                                }
+
                                                 var css = 'body, html { margin:0!important; padding:0!important; overflow:hidden!important; background:#000!important; width:100vw!important; height:100vh!important; } ' +
                                                           '#player, iframe, video { width:100vw!important; height:100vh!important; position:fixed!important; top:0!important; left:0!important; z-index:999999!important; border:none!important; } ' +
                                                           '#sb-message, #not-found-message, .ads, .ad-banner, .ad-container, [id*="google_ads"], [id*="banner-ad"] { display:none!important; }';
                                                 var head = document.head || document.getElementsByTagName('head')[0];
-                                                if (head) {
+                                                if (head && !document.getElementById('cine-custom-style')) {
                                                     var style = document.createElement('style');
+                                                    style.id = 'cine-custom-style';
                                                     style.type = 'text/css';
                                                     style.appendChild(document.createTextNode(css));
                                                     head.appendChild(style);
+                                                }
+
+                                                var playAttempts = 0;
+
+                                                function playHtml5Video(videoEl) {
+                                                    videoEl.setAttribute('playsinline', '');
+                                                    if (videoEl.paused) {
+                                                        var prom = videoEl.play();
+                                                        if (prom !== undefined) {
+                                                            prom.catch(function() {
+                                                                videoEl.muted = true;
+                                                                videoEl.play().then(function() {
+                                                                    setTimeout(function() { videoEl.muted = false; }, 600);
+                                                                }).catch(function(){});
+                                                            });
+                                                        }
+                                                    }
                                                 }
 
                                                 function autoPlay() {
@@ -591,9 +633,14 @@ fun LivePlayerScreen(
                                                     }
 
                                                     if (isPlaying) {
-                                                        clearInterval(timer);
+                                                        if (window.__cineAuto) {
+                                                            clearInterval(window.__cineAuto);
+                                                            window.__cineAuto = null;
+                                                        }
                                                         return;
                                                     }
+
+                                                    playAttempts++;
 
                                                     // 2. Não está rodando: tenta JWPlayer sem fullscreen
                                                     try {
@@ -609,35 +656,30 @@ fun LivePlayerScreen(
                                                         }
                                                     } catch(e) {}
 
-                                                    // 3. Tenta elementos de vídeo HTML5 padrão
+                                                    // 3. Tenta elementos de vídeo HTML5 padrão via função auxiliar (corrige closure)
                                                     for (var k = 0; k < vids.length; k++) {
-                                                        var v = vids[k];
-                                                        v.setAttribute('playsinline', '');
-                                                        if (v.paused) {
-                                                            var prom = v.play();
-                                                            if (prom !== undefined) {
-                                                                prom.catch(function() {
-                                                                    v.muted = true;
-                                                                    v.play().then(function() {
-                                                                        setTimeout(function() { v.muted = false; }, 600);
-                                                                    });
-                                                                });
-                                                            }
-                                                        }
+                                                        playHtml5Video(vids[k]);
                                                     }
 
-                                                    // 4. Clica SOMENTE no ícone de play se não estiver rodando (NUNCA clica no player ou vídeo!)
-                                                    var playIcon = document.querySelector('.jw-display-icon-container, .jw-icon-playback, .jw-display-icon-display, .jw-button-color, .vjs-big-play-button, .plyr__control--overlaid, button[class*="play"], div[class*="play-btn"]');
-                                                    if (playIcon) {
-                                                        try { playIcon.click(); } catch(e) {}
+                                                    // 4. Clica SOMENTE se o vídeo continuar não tocando após o play() em ciclo prévio
+                                                    if (playAttempts > 1) {
+                                                        var playIcon = document.querySelector('.jw-display-icon-container, .vjs-big-play-button, .plyr__control--overlaid');
+                                                        if (playIcon) {
+                                                            try { playIcon.click(); } catch(e) {}
+                                                        }
                                                     }
                                                 }
 
                                                 var count = 0;
-                                                var timer = setInterval(function() {
+                                                window.__cineAuto = setInterval(function() {
                                                     count++;
                                                     autoPlay();
-                                                    if (count >= 50) { clearInterval(timer); }
+                                                    if (count >= 50) {
+                                                        if (window.__cineAuto) {
+                                                            clearInterval(window.__cineAuto);
+                                                            window.__cineAuto = null;
+                                                        }
+                                                    }
                                                 }, 200);
 
                                                 autoPlay();
