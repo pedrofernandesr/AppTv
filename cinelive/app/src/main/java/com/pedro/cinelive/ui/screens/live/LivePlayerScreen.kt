@@ -99,11 +99,7 @@ val ALLOWED_WEB_EMBED_ORIGINS: Set<String> = setOf(
     "https://dadinhodetapioca.fun",
     "https://mastruzcomleite.site",
     "https://v1.rdembed.lat",
-    "https://reidosembeds.lat",
     "https://rdcanais.org",
-    "https://pqpstream.online",
-    "https://bolodechocolate.fit",
-    "https://paramountembed.wtf",
     "https://pescaplay.store"
 )
 
