@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
                 LivePlayerScreen(
                     viewModel = liveViewModel,
                     onExitApp = {
-                        AppLog.w("MainActivity", "[onExitApp] Calling finishAndRemoveTask()")
+                        AppLog.d("MainActivity", "[onExitApp] Calling finishAndRemoveTask()")
                         finishAndRemoveTask()
                     },
                     simulateNoFeatures = simulateNoFeatures

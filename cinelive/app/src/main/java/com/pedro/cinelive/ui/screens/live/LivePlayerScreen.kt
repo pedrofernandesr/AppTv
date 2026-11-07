@@ -342,10 +342,10 @@ fun LivePlayerScreen(
             else -> {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastBackPressTime < 2000L) {
-                    AppLog.w("LivePlayerScreen", "[BACK] Calling onExitApp")
+                    AppLog.d("LivePlayerScreen", "[BACK] Calling onExitApp")
                     onExitApp()
                 } else {
-                    AppLog.w("LivePlayerScreen", "[BACK] First press, arming double-back timer")
+                    AppLog.d("LivePlayerScreen", "[BACK] First press, arming double-back timer")
                     lastBackPressTime = now
                     Toast.makeText(context, "Pressione VOLTAR novamente para sair", Toast.LENGTH_SHORT).show()
                 }
