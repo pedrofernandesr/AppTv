@@ -329,6 +329,7 @@ fun LivePlayerScreen(
         channelListState.scrollToItem(0)
     }
 
+    var okPressOwnedByRoot by remember { mutableStateOf(false) }
     var okLongPressHandled by remember { mutableStateOf(false) }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
 
@@ -359,12 +360,22 @@ fun LivePlayerScreen(
             .focusRequester(rootFocusRequester)
             .focusable()
             .onKeyEvent { keyEvent ->
-                if (isDrawerOpen || isCatalogGridOpen) return@onKeyEvent false
+                var isShortCenterRelease = false
                 val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
                     keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
                 if (isCenterKey && keyEvent.type == KeyEventType.KeyDown) {
                     if (keyEvent.nativeKeyEvent.repeatCount == 0) {
-                        okLongPressHandled = false
+                        if (!isDrawerOpen && !isCatalogGridOpen) {
+                            okPressOwnedByRoot = true
+                            okLongPressHandled = false
+                            return@onKeyEvent true
+                        } else {
+                            okPressOwnedByRoot = false
+                            okLongPressHandled = false
+                            return@onKeyEvent false
+                        }
+                    } else if (!okPressOwnedByRoot) {
+                        return@onKeyEvent false
                     } else if (!okLongPressHandled && (keyEvent.nativeKeyEvent.repeatCount >= 1 || keyEvent.nativeKeyEvent.isLongPress)) {
                         okLongPressHandled = true
                         AppLog.d("CineLiveWeb", "[DPAD_CENTER] Long press -> openCatalogGrid()")
@@ -372,10 +383,15 @@ fun LivePlayerScreen(
                     }
                     return@onKeyEvent true
                 }
-                if (isCenterKey && keyEvent.type == KeyEventType.KeyUp && okLongPressHandled) {
+                if (isCenterKey && keyEvent.type == KeyEventType.KeyUp) {
+                    if (!okPressOwnedByRoot) return@onKeyEvent false
+                    val shouldRunShort = !okLongPressHandled
+                    okPressOwnedByRoot = false
+                    okLongPressHandled = false
+                    if (shouldRunShort) isShortCenterRelease = true else
                     return@onKeyEvent true
                 }
-                val isShortCenterRelease = isCenterKey && keyEvent.type == KeyEventType.KeyUp && !okLongPressHandled
+                if (isDrawerOpen || isCatalogGridOpen) return@onKeyEvent false
                 if ((keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) || isShortCenterRelease) {
                     if (isDrawerOpen || isCatalogGridOpen) {
                         // Quando o menu ou a grade estão abertos, o D-pad navega livremente entre os componentes
