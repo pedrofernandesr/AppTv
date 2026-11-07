@@ -9,6 +9,7 @@ import androidx.activity.viewModels
 import com.pedro.cinelive.ui.screens.live.LivePlayerScreen
 import com.pedro.cinelive.ui.screens.live.LiveViewModel
 import com.pedro.cinelive.ui.theme.CineLiveTheme
+import com.pedro.cinelive.util.AppLog
 
 class MainActivity : ComponentActivity() {
 
@@ -31,14 +32,23 @@ class MainActivity : ComponentActivity() {
         )
 
         intent?.getStringExtra("channel_id")?.let { id ->
+            AppLog.d("MainActivity", "onCreate extra channel_id: $id")
             if (id.isNotBlank()) liveViewModel.tuneChannelById(id)
         }
+
+        val simulateNoFeatures = if (BuildConfig.DEBUG) {
+            intent?.getBooleanExtra("simulate_no_features", false) ?: false
+        } else false
 
         setContent {
             CineLiveTheme {
                 LivePlayerScreen(
                     viewModel = liveViewModel,
-                    onExitApp = { finish() }
+                    onExitApp = {
+                        AppLog.d("MainActivity", "[onExitApp] Calling finishAndRemoveTask()")
+                        finishAndRemoveTask()
+                    },
+                    simulateNoFeatures = simulateNoFeatures
                 )
             }
         }
@@ -47,8 +57,10 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getStringExtra("channel_id")?.let { id ->
-            if (id.isNotBlank()) liveViewModel.tuneChannelById(id)
+        val id = intent.getStringExtra("channel_id")
+        AppLog.d("MainActivity", "onNewIntent extra channel_id: $id")
+        id?.let {
+            if (it.isNotBlank()) liveViewModel.tuneChannelById(it)
         }
     }
 
