@@ -103,8 +103,7 @@ val ALLOWED_WEB_EMBED_ORIGINS: Set<String> = setOf(
     "https://pqpstream.online",
     "https://bolodechocolate.fit",
     "https://paramountembed.wtf",
-    "https://pescaplay.store",
-    "https://localhost.tattoo"
+    "https://pescaplay.store"
 )
 
 @OptIn(UnstableApi::class)
@@ -435,18 +434,13 @@ fun LivePlayerScreen(
                                 activeWebView?.evaluateJavascript(
                                     """
                                     (function() {
-                                        // Envia postMessage recursivo para todos os iframes da página
-                                        function broadcastFrames(win, msg) {
-                                            if (!win) return;
-                                            try { win.postMessage(msg, '*'); } catch(e) {}
-                                            try {
-                                                for (var f = 0; f < win.frames.length; f++) {
-                                                    broadcastFrames(win.frames[f], msg);
-                                                }
-                                            } catch(e) {}
-                                        }
-                                        broadcastFrames(window, 'cine-play');
-                                        broadcastFrames(window, 'cine-unmute');
+                                        // Envia postMessage para os iframes filhos diretos (cada iframe valida evt.source === window.parent e repassa aos sub-iframes)
+                                        try {
+                                            for (var f = 0; f < window.frames.length; f++) {
+                                                try { window.frames[f].postMessage('cine-play', '*'); } catch(e) {}
+                                                try { window.frames[f].postMessage('cine-unmute', '*'); } catch(e) {}
+                                            }
+                                        } catch(e) {}
 
                                         var isPlaying = false;
                                         var vids = document.querySelectorAll('video');
@@ -782,10 +776,16 @@ fun LivePlayerScreen(
                                             }
 
                                             window.addEventListener('message', function(evt) {
+                                                if (evt.source !== window.parent) return;
                                                 var data = evt.data;
                                                 if (data === 'cine-play' || data === 'cine-unmute' || (data && (data.action === 'cine-play' || data.action === 'cine-unmute'))) {
                                                     console.log('[CineFrameInjection] postMessage recebido (' + JSON.stringify(data) + ') em ' + location.href);
                                                     safePlayAndUnmute('postMessage');
+                                                    try {
+                                                        for (var f = 0; f < window.frames.length; f++) {
+                                                            try { window.frames[f].postMessage(data, '*'); } catch(e) {}
+                                                        }
+                                                    } catch(e) {}
                                                 }
                                             });
 
