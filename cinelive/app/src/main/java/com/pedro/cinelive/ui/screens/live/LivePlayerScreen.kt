@@ -17,6 +17,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.io.ByteArrayInputStream
+import android.widget.Toast
 import java.util.concurrent.ConcurrentHashMap
 import android.content.Context
 import android.media.AudioManager
@@ -332,13 +333,23 @@ fun LivePlayerScreen(
         channelListState.scrollToItem(0)
     }
 
+    var lastBackPressTime by remember { mutableLongStateOf(0L) }
+
     // Interceptação centralizada de Botão Voltar (Back)
     BackHandler {
         when {
             isCatalogGridOpen -> viewModel.closeCatalogGrid()
             isDrawerOpen -> viewModel.closeDrawer()
             isEpgBannerVisible -> viewModel.hideEpgBanner()
-            else -> onExitApp()
+            else -> {
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastBackPressTime < 2000L) {
+                    onExitApp()
+                } else {
+                    lastBackPressTime = now
+                    Toast.makeText(context, "Pressione VOLTAR novamente para sair", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
