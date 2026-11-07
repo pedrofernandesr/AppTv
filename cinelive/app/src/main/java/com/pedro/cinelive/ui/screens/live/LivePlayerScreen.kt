@@ -333,6 +333,7 @@ fun LivePlayerScreen(
         channelListState.scrollToItem(0)
     }
 
+    var okLongPressHandled by remember { mutableStateOf(false) }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
 
     // Interceptação centralizada de Botão Voltar (Back)
@@ -362,13 +363,34 @@ fun LivePlayerScreen(
             .focusRequester(rootFocusRequester)
             .focusable()
             .onKeyEvent { keyEvent ->
-                if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
+                if (isDrawerOpen || isCatalogGridOpen) return@onKeyEvent false
+                val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                    keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
+                if (isCenterKey && keyEvent.type == KeyEventType.KeyDown) {
+                    if (keyEvent.nativeKeyEvent.repeatCount == 0) {
+                        okLongPressHandled = false
+                    } else if (!okLongPressHandled && (keyEvent.nativeKeyEvent.repeatCount >= 1 || keyEvent.nativeKeyEvent.isLongPress)) {
+                        okLongPressHandled = true
+                        AppLog.d("CineLiveWeb", "[DPAD_CENTER] Long press -> openCatalogGrid()")
+                        viewModel.openCatalogGrid()
+                    }
+                    return@onKeyEvent true
+                }
+                if (isCenterKey && keyEvent.type == KeyEventType.KeyUp && okLongPressHandled) {
+                    return@onKeyEvent true
+                }
+                val isShortCenterRelease = isCenterKey && keyEvent.type == KeyEventType.KeyUp && !okLongPressHandled
+                if ((keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) || isShortCenterRelease) {
                     if (isDrawerOpen || isCatalogGridOpen) {
                         // Quando o menu ou a grade estão abertos, o D-pad navega livremente entre os componentes
                         return@onKeyEvent false
                     }
                     when (keyEvent.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_PROG_RED -> {
+                        KeyEvent.KEYCODE_DPAD_UP -> {
+                            viewModel.previousChannel()
+                            true
+                        }
+                        KeyEvent.KEYCODE_PROG_RED -> {
                             viewModel.openCatalogGrid()
                             true
                         }
