@@ -282,8 +282,9 @@ fun LivePlayerScreen(
                 val isAnyPermittedFramePlaying = if (isWebMessageSupported) framePlayingMap.values.any { it } else false
                 val isPlaying = isAudioPlaying || isAnyPermittedFramePlaying
 
-                // Só despacha touch inicial se não estiver tocando e houver suporte seguro para rastrear estado
-                if (!isPlaying && isWebMessageSupported && isDocStartSupported) {
+                // Desativado quando DOCUMENT_START_SCRIPT é suportado (o script do iframe já dá play);
+                // mantido apenas no fallback sem doc-start e somente se o frame não reportou "playing" (nem áudio ativo).
+                if (!isDocStartSupported && !isPlaying) {
                     activeWebView?.let { wv ->
                         val w = wv.width.toFloat().takeIf { it > 0 } ?: 1920f
                         val h = wv.height.toFloat().takeIf { it > 0 } ?: 1080f
@@ -295,8 +296,12 @@ fun LivePlayerScreen(
                         down.recycle()
                         up.recycle()
                         if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                            Log.d("CineLiveWeb", "Plano B: dispatchTouchEvent único por canal executado no centro ($w x $h)")
+                            Log.d("CineLiveWeb", "Plano B (fallback sem doc-start): dispatchTouchEvent único por canal executado no centro ($w x $h)")
                         }
+                    }
+                } else {
+                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                        Log.d("CineLiveWeb", "Plano B ignorado (docStartSupported=$isDocStartSupported, isPlaying=$isPlaying)")
                     }
                 }
             }
@@ -748,28 +753,30 @@ fun LivePlayerScreen(
                                                     return true;
                                                 }
 
-                                                console.log('[CineFrameInjection] safePlayAndUnmute (' + source + '): ' + location.href);
-                                                try {
-                                                    video.muted = false;
-                                                    var p = video.play();
-                                                    if (p && p.catch) {
-                                                        p.catch(function(err) {
-                                                            console.log('[CineFrameInjection] play() desmutado falhou, tentando mutado: ' + err);
-                                                            video.muted = true;
-                                                            video.play().catch(function(){});
-                                                        });
-                                                    }
-                                                } catch(e) {}
-
                                                 if (video.paused) {
-                                                    var overlays = document.querySelectorAll('#center-play-btn, .center-play-btn, .bmpui-ui-hugeplaybacktogglebutton, .vjs-big-play-button, .plyr__control--overlaid, .jw-display-icon-container');
-                                                    overlays.forEach(function(btn) {
-                                                        try {
-                                                            btn.click();
-                                                            console.log('[CineFrameInjection] Overlay seguro acionado (' + (btn.id || btn.className || '') + '): ' + location.href);
-                                                        } catch(e) {}
-                                                    });
-                                                    try { video.play().catch(function(){}); } catch(e) {}
+                                                    console.log('[CineFrameInjection] safePlayAndUnmute (' + source + '): ' + location.href);
+                                                    try {
+                                                        video.muted = false;
+                                                        var p = video.play();
+                                                        if (p && p.catch) {
+                                                            p.catch(function(err) {
+                                                                console.log('[CineFrameInjection] play() desmutado falhou, tentando mutado: ' + err);
+                                                                video.muted = true;
+                                                                video.play().catch(function(){});
+                                                            });
+                                                        }
+                                                    } catch(e) {}
+
+                                                    if (video.paused) {
+                                                        var overlays = document.querySelectorAll('#center-play-btn, .center-play-btn, .bmpui-ui-hugeplaybacktogglebutton, .vjs-big-play-button, .plyr__control--overlaid, .jw-display-icon-container');
+                                                        overlays.forEach(function(btn) {
+                                                            try {
+                                                                btn.click();
+                                                                console.log('[CineFrameInjection] Overlay seguro acionado (' + (btn.id || btn.className || '') + '): ' + location.href);
+                                                            } catch(e) {}
+                                                        });
+                                                        try { video.play().catch(function(){}); } catch(e) {}
+                                                    }
                                                 }
                                                 return true;
                                             }
