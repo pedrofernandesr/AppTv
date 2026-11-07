@@ -99,7 +99,12 @@ val ALLOWED_WEB_EMBED_ORIGINS: Set<String> = setOf(
     "https://mastruzcomleite.site",
     "https://v1.rdembed.lat",
     "https://reidosembeds.lat",
-    "https://rdcanais.org"
+    "https://rdcanais.org",
+    "https://pqpstream.online",
+    "https://bolodechocolate.fit",
+    "https://paramountembed.wtf",
+    "https://pescaplay.store",
+    "https://localhost.tattoo"
 )
 
 @OptIn(UnstableApi::class)
@@ -398,10 +403,10 @@ fun LivePlayerScreen(
                                 val chanceOfVideoPlaying = isAudioPlaying || isAnyPermittedFramePlaying || !isWebMessageSupported || !isDocStartSupported
 
                                 if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                    Log.d("CineLiveWeb", "[DPAD_CENTER] isAudioPlaying=$isAudioPlaying, framePlaying=$isAnyPermittedFramePlaying, chanceOfPlaying=$chanceOfVideoPlaying, webMsgSupported=$isWebMessageSupported")
+                                    Log.d("CineLiveWeb", "[DPAD_CENTER] isAudioPlaying=$isAudioPlaying, framePlaying=$isAnyPermittedFramePlaying, chanceOfPlaying=$chanceOfVideoPlaying, webMsgSupported=$isWebMessageSupported, docStartSupported=$isDocStartSupported")
                                 }
 
-                                if (!chanceOfVideoPlaying) {
+                                if (!isDocStartSupported && !chanceOfVideoPlaying) {
                                     activeWebView?.let { wv ->
                                         val w = wv.width.toFloat().takeIf { it > 0 } ?: 1920f
                                         val h = wv.height.toFloat().takeIf { it > 0 } ?: 1080f
@@ -413,12 +418,12 @@ fun LivePlayerScreen(
                                         down.recycle()
                                         up.recycle()
                                         if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                            Log.d("CineLiveWeb", "[DPAD_CENTER] Plano B: dispatchTouchEvent acionado no centro ($w x $h)")
+                                            Log.d("CineLiveWeb", "[DPAD_CENTER] Fallback legado (sem doc-start): dispatchTouchEvent acionado no centro ($w x $h)")
                                         }
                                     }
                                 } else {
                                     if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                        Log.d("CineLiveWeb", "[DPAD_CENTER] dispatchTouchEvent bloqueado por precaucao (chance de video estar tocando)")
+                                        Log.d("CineLiveWeb", "[DPAD_CENTER] dispatchTouchEvent nao acionado (doc-start ativo ou chance de video estar tocando)")
                                     }
                                 }
 
