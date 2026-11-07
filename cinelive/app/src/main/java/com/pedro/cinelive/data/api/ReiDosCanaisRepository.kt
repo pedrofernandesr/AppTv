@@ -501,10 +501,17 @@ class ReiDosCanaisRepository(
                                 streamCache[channelKey] = res
                                 return@withContext res
                             }
-                            Log.d(TAG, "Player interno direcionado para WebView TV: $iframeSrc")
+                            val targetUrl = if (iframeSrc.contains("mastruzcomleite", ignoreCase = true) ||
+                                iframeSrc.contains("dadinho", ignoreCase = true) ||
+                                iframeSrc.contains("pqpstream", ignoreCase = true)) {
+                                embedUrl
+                            } else {
+                                iframeSrc
+                            }
+                            Log.d(TAG, "Player interno direcionado para WebView TV: $targetUrl (iframeSrc=$iframeSrc)")
                             val res = ResolvedStream(
                                 type = StreamType.WEB_EMBED,
-                                url = iframeSrc
+                                url = targetUrl
                             )
                             streamCache[channelKey] = res
                             return@withContext res
