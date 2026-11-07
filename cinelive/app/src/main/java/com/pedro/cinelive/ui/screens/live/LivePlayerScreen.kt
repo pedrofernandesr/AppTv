@@ -705,27 +705,27 @@ fun LivePlayerScreen(
 
                                                 if (video.paused) {
                                                     console.log('[CineFrameInjection] safePlayAndUnmute (' + source + '): ' + location.href);
-                                                    try {
-                                                        video.muted = false;
-                                                        var p = video.play();
-                                                        if (p && p.catch) {
-                                                            p.catch(function(err) {
-                                                                console.log('[CineFrameInjection] play() desmutado falhou, tentando mutado: ' + err);
-                                                                video.muted = true;
-                                                                video.play().catch(function(){});
-                                                            });
-                                                        }
-                                                    } catch(e) {}
-
+                                                    var overlays = document.querySelectorAll('#center-play-btn, .center-play-btn, .bmpui-ui-hugeplaybacktogglebutton, .vjs-big-play-button, .plyr__control--overlaid, .jw-display-icon-container');
+                                                    overlays.forEach(function(btn) {
+                                                        try {
+                                                            btn.click();
+                                                            console.log('[CineFrameInjection] Overlay seguro acionado (' + (btn.id || btn.className || '') + '): ' + location.href);
+                                                        } catch(e) {}
+                                                    });
                                                     if (video.paused) {
-                                                        var overlays = document.querySelectorAll('#center-play-btn, .center-play-btn, .bmpui-ui-hugeplaybacktogglebutton, .vjs-big-play-button, .plyr__control--overlaid, .jw-display-icon-container');
-                                                        overlays.forEach(function(btn) {
-                                                            try {
-                                                                btn.click();
-                                                                console.log('[CineFrameInjection] Overlay seguro acionado (' + (btn.id || btn.className || '') + '): ' + location.href);
-                                                            } catch(e) {}
-                                                        });
-                                                        try { video.play().catch(function(){}); } catch(e) {}
+                                                        try {
+                                                            video.muted = false;
+                                                            var p = video.play();
+                                                            if (p && p.catch) {
+                                                                p.catch(function(err) {
+                                                                    console.log('[CineFrameInjection] play() desmutado falhou, tentando mutado: ' + err);
+                                                                    if (err && err.name === 'NotAllowedError') {
+                                                                        video.muted = true;
+                                                                    }
+                                                                    video.play().catch(function(){});
+                                                                });
+                                                            }
+                                                        } catch(e) {}
                                                     }
                                                 }
                                                 return true;
@@ -757,7 +757,6 @@ fun LivePlayerScreen(
                                                     }
                                                     if (!video.paused && video.currentTime > 0) {
                                                         notifyBridge(true);
-                                                        clearInterval(timer);
                                                     }
                                                 }
                                             }, 500);
