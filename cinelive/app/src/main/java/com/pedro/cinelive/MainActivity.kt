@@ -44,7 +44,10 @@ class MainActivity : ComponentActivity() {
             CineLiveTheme {
                 LivePlayerScreen(
                     viewModel = liveViewModel,
-                    onExitApp = { finish() },
+                    onExitApp = {
+                        AppLog.w("MainActivity", "[onExitApp] Calling finishAndRemoveTask()")
+                        finishAndRemoveTask()
+                    },
                     simulateNoFeatures = simulateNoFeatures
                 )
             }
