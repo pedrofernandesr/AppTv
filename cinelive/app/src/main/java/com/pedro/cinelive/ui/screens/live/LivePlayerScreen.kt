@@ -3,9 +3,9 @@ package com.pedro.cinelive.ui.screens.live
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
-import android.util.Log
 import android.view.KeyEvent
 import android.view.ViewGroup
+import com.pedro.cinelive.util.AppLog
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
@@ -163,9 +163,7 @@ fun LivePlayerScreen(
                 repeatMode = Player.REPEAT_MODE_OFF
                 addListener(object : Player.Listener {
                     override fun onPlayerError(error: PlaybackException) {
-                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                            Log.e("CineLivePlayer", "ExoPlayer error: ${error.errorCodeName} - ${error.message}", error)
-                        }
+                        AppLog.e("CineLivePlayer", "ExoPlayer error: ${error.errorCodeName} - ${error.message}", error, debugOnly = true)
                         if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                             seekToDefaultPosition()
                             prepare()
@@ -174,9 +172,7 @@ fun LivePlayerScreen(
                         }
                     }
                     override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                            Log.d("CineLivePlayer", "ExoPlayer state: $playbackState (READY=${Player.STATE_READY})")
-                        }
+                        AppLog.d("CineLivePlayer", "ExoPlayer state: $playbackState (READY=${Player.STATE_READY})")
                     }
                 })
             }
@@ -196,16 +192,12 @@ fun LivePlayerScreen(
                 Lifecycle.Event.ON_START -> {
                     exoPlayer.playWhenReady = true
                     activeWebView?.onResume()
-                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                        Log.d("CineLiveLifecycle", "ON_START recebido: retomando playback (ExoPlayer isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady}, WebView.onResume())")
-                    }
+                    AppLog.d("CineLiveLifecycle", "ON_START recebido: retomando playback (ExoPlayer isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady}, WebView.onResume())")
                 }
                 Lifecycle.Event.ON_STOP -> {
                     exoPlayer.playWhenReady = false
                     activeWebView?.onPause()
-                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                        Log.d("CineLiveLifecycle", "ON_STOP recebido: pausando playback (ExoPlayer isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady}, WebView.onPause())")
-                    }
+                    AppLog.d("CineLiveLifecycle", "ON_STOP recebido: pausando playback (ExoPlayer isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady}, WebView.onPause())")
                 }
                 else -> {}
             }
@@ -222,9 +214,7 @@ fun LivePlayerScreen(
         exoPlayerError = null
         if (stream != null) {
             val host = runCatching { java.net.URI(stream.url).host }.getOrNull() ?: "desconhecido"
-            if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                Log.d("CineLivePlayer", "Stream carregado: tipo=${stream.type}, host=$host, url=${stream.url}")
-            }
+            AppLog.d("CineLivePlayer", "Stream carregado: tipo=${stream.type}, host=$host, url=${stream.url}")
         }
         if (stream != null && stream.type == StreamType.DIRECT_M3U8) {
             if (stream.headers.isNotEmpty()) {
@@ -236,9 +226,7 @@ fun LivePlayerScreen(
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
             val isStarted = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-            if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                Log.d("CineLivePlayer", "DIRECT_M3U8 configurado: lifecycle.isAtLeast(STARTED)=$isStarted, currentState=${lifecycleOwner.lifecycle.currentState}, playWhenReady=${exoPlayer.playWhenReady}, isPlaying=${exoPlayer.isPlaying}")
-            }
+            AppLog.d("CineLivePlayer", "DIRECT_M3U8 configurado: lifecycle.isAtLeast(STARTED)=$isStarted, currentState=${lifecycleOwner.lifecycle.currentState}, playWhenReady=${exoPlayer.playWhenReady}, isPlaying=${exoPlayer.isPlaying}")
             if (isStarted) {
                 exoPlayer.play()
             }
@@ -252,7 +240,7 @@ fun LivePlayerScreen(
                     val pos = exoPlayer.currentPosition
                     val rendered = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1
                     val absPos = if (windowStart > 0) windowStart + pos else pos
-                    Log.d("CineLiveMetrics", "[DIRECT_M3U8] t=8s canal=${currentChannel?.name}: posMs=$pos, windowStartMs=$windowStart, absolutePosMs=$absPos, renderedBuffers=$rendered, isPlaying=${exoPlayer.isPlaying}")
+                    AppLog.d("CineLiveMetrics", "[DIRECT_M3U8] t=8s canal=${currentChannel?.name}: posMs=$pos, windowStartMs=$windowStart, absolutePosMs=$absPos, renderedBuffers=$rendered, isPlaying=${exoPlayer.isPlaying}")
 
                     delay(4000)
                     val windowStart12 = if (!exoPlayer.currentTimeline.isEmpty) {
@@ -261,7 +249,7 @@ fun LivePlayerScreen(
                     val pos12 = exoPlayer.currentPosition
                     val rendered12 = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1
                     val absPos12 = if (windowStart12 > 0) windowStart12 + pos12 else pos12
-                    Log.d("CineLiveMetrics", "[DIRECT_M3U8] t=12s canal=${currentChannel?.name}: posMs=$pos12, windowStartMs=$windowStart12, absolutePosMs=$absPos12, renderedBuffers=$rendered12, isPlaying=${exoPlayer.isPlaying}")
+                    AppLog.d("CineLiveMetrics", "[DIRECT_M3U8] t=12s canal=${currentChannel?.name}: posMs=$pos12, windowStartMs=$windowStart12, absolutePosMs=$absPos12, renderedBuffers=$rendered12, isPlaying=${exoPlayer.isPlaying}")
                 }
             }
         } else {
@@ -294,14 +282,10 @@ fun LivePlayerScreen(
                         wv.dispatchTouchEvent(up)
                         down.recycle()
                         up.recycle()
-                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                            Log.d("CineLiveWeb", "Plano B (fallback sem doc-start): dispatchTouchEvent único por canal executado no centro ($w x $h)")
-                        }
+                        AppLog.d("CineLiveWeb", "Plano B (fallback sem doc-start): dispatchTouchEvent único por canal executado no centro ($w x $h)")
                     }
                 } else {
-                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                        Log.d("CineLiveWeb", "Plano B ignorado (docStartSupported=$isDocStartSupported, isPlaying=$isPlaying)")
-                    }
+                    AppLog.d("CineLiveWeb", "Plano B ignorado (docStartSupported=$isDocStartSupported, isPlaying=$isPlaying)")
                 }
             }
         }
@@ -313,19 +297,13 @@ fun LivePlayerScreen(
             delay(20L * attempt)
             val result = runCatching { requester.requestFocus() }
             if (result.isSuccess) {
-                if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                    Log.d("CineLiveFocus", "Foco aplicado com sucesso em $targetName na tentativa $attempt")
-                }
+                AppLog.d("CineLiveFocus", "Foco aplicado com sucesso em $targetName na tentativa $attempt")
                 return
             } else {
-                if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                    Log.w("CineLiveFocus", "Tentativa $attempt de focar em $targetName falhou com exceção: ${result.exceptionOrNull()?.message}")
-                }
+                AppLog.w("CineLiveFocus", "Tentativa $attempt de focar em $targetName falhou com exceção: ${result.exceptionOrNull()?.message}", debugOnly = true)
             }
         }
-        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-            Log.e("CineLiveFocus", "FALHA DEFINITIVA: Todas as 3 tentativas de focar em $targetName falharam!")
-        }
+        AppLog.e("CineLiveFocus", "FALHA DEFINITIVA: Todas as 3 tentativas de focar em $targetName falharam!", debugOnly = true)
     }
 
     LaunchedEffect(isDrawerOpen, isCatalogGridOpen) {
@@ -406,9 +384,7 @@ fun LivePlayerScreen(
                                 val isAnyPermittedFramePlaying = if (isWebMessageSupported) framePlayingMap.values.any { it } else false
                                 val chanceOfVideoPlaying = isAudioPlaying || isAnyPermittedFramePlaying || !isWebMessageSupported || !isDocStartSupported
 
-                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                    Log.d("CineLiveWeb", "[DPAD_CENTER] isAudioPlaying=$isAudioPlaying, framePlaying=$isAnyPermittedFramePlaying, chanceOfPlaying=$chanceOfVideoPlaying, webMsgSupported=$isWebMessageSupported, docStartSupported=$isDocStartSupported")
-                                }
+                                AppLog.d("CineLiveWeb", "[DPAD_CENTER] isAudioPlaying=$isAudioPlaying, framePlaying=$isAnyPermittedFramePlaying, chanceOfPlaying=$chanceOfVideoPlaying, webMsgSupported=$isWebMessageSupported, docStartSupported=$isDocStartSupported")
 
                                 if (!isDocStartSupported && !chanceOfVideoPlaying) {
                                     activeWebView?.let { wv ->
@@ -421,14 +397,10 @@ fun LivePlayerScreen(
                                         wv.dispatchTouchEvent(up)
                                         down.recycle()
                                         up.recycle()
-                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                            Log.d("CineLiveWeb", "[DPAD_CENTER] Fallback legado (sem doc-start): dispatchTouchEvent acionado no centro ($w x $h)")
-                                        }
+                                        AppLog.d("CineLiveWeb", "[DPAD_CENTER] Fallback legado (sem doc-start): dispatchTouchEvent acionado no centro ($w x $h)")
                                     }
                                 } else {
-                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                        Log.d("CineLiveWeb", "[DPAD_CENTER] dispatchTouchEvent nao acionado (doc-start ativo ou chance de video estar tocando)")
-                                    }
+                                    AppLog.d("CineLiveWeb", "[DPAD_CENTER] dispatchTouchEvent nao acionado (doc-start ativo ou chance de video estar tocando)")
                                 }
 
                                 activeWebView?.evaluateJavascript(
@@ -601,15 +573,11 @@ fun LivePlayerScreen(
                                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                                 val webViewPackage = WebViewCompat.getCurrentWebViewPackage(context)
                                 val webViewVersion = webViewPackage?.versionName ?: "Desconhecida"
-                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                    Log.d("CineLiveWeb", "Android System WebView version: $webViewVersion (pacote: ${webViewPackage?.packageName})")
-                                }
+                                AppLog.d("CineLiveWeb", "Android System WebView version: $webViewVersion (pacote: ${webViewPackage?.packageName})")
 
                                 if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
                                     onPause()
-                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                        Log.d("CineLiveWeb", "WebView criada em background: onPause() executado")
-                                    }
+                                    AppLog.d("CineLiveWeb", "WebView criada em background: onPause() executado")
                                 }
                                 try {
                                     if (com.pedro.cinelive.BuildConfig.DEBUG) {
@@ -618,9 +586,7 @@ fun LivePlayerScreen(
                                     CookieManager.getInstance().setAcceptCookie(true)
                                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                                 } catch (e: Exception) {
-                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                        Log.w("CineLivePlayer", "Erro ao configurar cookies na WebView", e)
-                                    }
+                                    AppLog.w("CineLivePlayer", "Erro ao configurar cookies na WebView", e, debugOnly = true)
                                 }
                                 settings.apply {
                                     javaScriptEnabled = true
@@ -666,31 +632,21 @@ fun LivePlayerScreen(
 
                                                             if (isPlaying != null) {
                                                                 framePlayingMap[originStr] = isPlaying
-                                                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                                                    Log.d("CineLiveWeb", "[WebMessageListener] frame=$originStr isPlaying=$isPlaying (activePermittedFrames=${framePlayingMap.filterValues { it }.keys})")
-                                                                }
+                                                                AppLog.d("CineLiveWeb", "[WebMessageListener] frame=$originStr isPlaying=$isPlaying (activePermittedFrames=${framePlayingMap.filterValues { it }.keys})")
                                                             }
                                                         }
                                                     } else {
-                                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                                            Log.w("CineLiveWeb", "WebMessage rejeitada de origem não permitida: $originStr")
-                                                        }
+                                                        AppLog.w("CineLiveWeb", "WebMessage rejeitada de origem não permitida: $originStr", debugOnly = true)
                                                     }
                                                 }
                                             }
                                         )
-                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                            Log.d("CineLiveWeb", "addWebMessageListener configurado para $ALLOWED_WEB_EMBED_ORIGINS")
-                                        }
+                                        AppLog.d("CineLiveWeb", "addWebMessageListener configurado para $ALLOWED_WEB_EMBED_ORIGINS")
                                     } catch (e: Exception) {
-                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                            Log.e("CineLiveWeb", "Erro ao registrar addWebMessageListener", e)
-                                        }
+                                        AppLog.e("CineLiveWeb", "Erro ao registrar addWebMessageListener", e, debugOnly = true)
                                     }
                                 } else {
-                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                        Log.w("CineLiveWeb", "WEB_MESSAGE_LISTENER não suportado ou desativado")
-                                    }
+                                    AppLog.w("CineLiveWeb", "WEB_MESSAGE_LISTENER não suportado ou desativado", debugOnly = true)
                                 }
 
                                 if (isDocStartSupported) {
@@ -814,18 +770,12 @@ fun LivePlayerScreen(
 
                                     try {
                                         WebViewCompat.addDocumentStartJavaScript(this, iframeScript, ALLOWED_WEB_EMBED_ORIGINS)
-                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                            Log.d("CineLiveWeb", "addDocumentStartJavaScript configurado com sucesso para $ALLOWED_WEB_EMBED_ORIGINS")
-                                        }
+                                        AppLog.d("CineLiveWeb", "addDocumentStartJavaScript configurado com sucesso para $ALLOWED_WEB_EMBED_ORIGINS")
                                     } catch (e: Exception) {
-                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                            Log.e("CineLiveWeb", "Erro ao registrar addDocumentStartJavaScript", e)
-                                        }
+                                        AppLog.e("CineLiveWeb", "Erro ao registrar addDocumentStartJavaScript", e, debugOnly = true)
                                     }
                                 } else {
-                                    if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                        Log.w("CineLiveWeb", "DOCUMENT_START_SCRIPT não suportado no WebView atual")
-                                    }
+                                    AppLog.w("CineLiveWeb", "DOCUMENT_START_SCRIPT não suportado no WebView atual", debugOnly = true)
                                 }
                                 webChromeClient = object : WebChromeClient() {
                                     override fun onPermissionRequest(request: PermissionRequest?) {
@@ -844,9 +794,7 @@ fun LivePlayerScreen(
                                     }
                                     override fun onHideCustomView() {}
                                     override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
-                                        if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                            Log.d("CineLiveWeb", "[${consoleMessage?.messageLevel()}] ${consoleMessage?.message()} (${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()})")
-                                        }
+                                        AppLog.d("CineLiveWeb", "[${consoleMessage?.messageLevel()}] ${consoleMessage?.message()} (${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()})")
                                         return true
                                     }
                                 }
@@ -904,9 +852,7 @@ fun LivePlayerScreen(
                                             val targetHost = uri.host
                                             val currentUrl = currentStream?.url
                                             if (!isHostAllowed(targetHost, currentUrl)) {
-                                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                                    Log.w("CineLiveWeb", "Bloqueando redirecionamento de frame principal para host não autorizado: $uri")
-                                                }
+                                                AppLog.w("CineLiveWeb", "Bloqueando redirecionamento de frame principal para host não autorizado: $uri", debugOnly = true)
                                                 return true
                                             }
                                         }
@@ -916,9 +862,7 @@ fun LivePlayerScreen(
                                     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                                         super.onReceivedError(view, request, error)
                                         if (request?.isForMainFrame == true) {
-                                            if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                                Log.e("CineLiveWeb", "onReceivedError no frame principal: url=${request.url}, errorCode=${error?.errorCode}, desc=${error?.description}")
-                                            }
+                                            AppLog.e("CineLiveWeb", "onReceivedError no frame principal: url=${request.url}, errorCode=${error?.errorCode}, desc=${error?.description}", debugOnly = true)
                                             webViewError = "Sinal indisponível temporariamente no servidor"
                                         }
                                     }
@@ -1069,13 +1013,9 @@ fun LivePlayerScreen(
                                 wv.clearHistory()
                                 wv.removeAllViews()
                                 wv.destroy()
-                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                    Log.d("CineLiveWeb", "WebView onRelease: stopLoading, about:blank e destroy executados com sucesso")
-                                }
+                                AppLog.d("CineLiveWeb", "WebView onRelease: stopLoading, about:blank e destroy executados com sucesso")
                             } catch (e: Exception) {
-                                if (com.pedro.cinelive.BuildConfig.DEBUG) {
-                                    Log.w("CineLivePlayer", "Erro ao destruir WebView no onRelease", e)
-                                }
+                                AppLog.w("CineLivePlayer", "Erro ao destruir WebView no onRelease", e, debugOnly = true)
                             }
                             if (activeWebView === wv) {
                                 activeWebView = null

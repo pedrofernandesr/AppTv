@@ -2,7 +2,6 @@ package com.pedro.cinelive
 
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,6 +9,7 @@ import androidx.activity.viewModels
 import com.pedro.cinelive.ui.screens.live.LivePlayerScreen
 import com.pedro.cinelive.ui.screens.live.LiveViewModel
 import com.pedro.cinelive.ui.theme.CineLiveTheme
+import com.pedro.cinelive.util.AppLog
 
 class MainActivity : ComponentActivity() {
 
@@ -32,9 +32,7 @@ class MainActivity : ComponentActivity() {
         )
 
         intent?.getStringExtra("channel_id")?.let { id ->
-            if (BuildConfig.DEBUG) {
-                Log.d("MainActivity", "onCreate extra channel_id: $id")
-            }
+            AppLog.d("MainActivity", "onCreate extra channel_id: $id")
             if (id.isNotBlank()) liveViewModel.tuneChannelById(id)
         }
 
@@ -57,9 +55,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         val id = intent.getStringExtra("channel_id")
-        if (BuildConfig.DEBUG) {
-            Log.d("MainActivity", "onNewIntent extra channel_id: $id")
-        }
+        AppLog.d("MainActivity", "onNewIntent extra channel_id: $id")
         id?.let {
             if (it.isNotBlank()) liveViewModel.tuneChannelById(it)
         }

@@ -1,7 +1,7 @@
 package com.pedro.cinelive.data.api
 
-import android.util.Log
 import com.pedro.cinelive.data.model.*
+import com.pedro.cinelive.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -91,7 +91,11 @@ class ReiDosCanaisRepository(
 
         private fun buildRepository(): ReiDosCanaisRepository {
             val logging = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BASIC
+                level = if (com.pedro.cinelive.BuildConfig.DEBUG) {
+                    HttpLoggingInterceptor.Level.BASIC
+                } else {
+                    HttpLoggingInterceptor.Level.NONE
+                }
             }
 
             val client = OkHttpClient.Builder()
@@ -135,7 +139,7 @@ class ReiDosCanaisRepository(
                 baseCategories.addAll(response.data)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "API de categorias offline, usando catálogo embarcado local", e)
+            AppLog.w(TAG, "API de categorias offline, usando catálogo embarcado local", e)
         }
 
         // Fallback para arquivo local embutido em assets
@@ -145,11 +149,11 @@ class ReiDosCanaisRepository(
                 val json = assetManager.open("default_categories.json").bufferedReader(Charsets.UTF_8).use { it.readText() }
                 val fallbackResp = com.google.gson.Gson().fromJson(json, com.pedro.cinelive.data.model.CategoriesResponse::class.java)
                 if (fallbackResp.success && fallbackResp.data.isNotEmpty()) {
-                    Log.d(TAG, "Categorias recuperadas com sucesso do backup local (${fallbackResp.data.size} categorias)")
+                    AppLog.d(TAG, "Categorias recuperadas com sucesso do backup local (${fallbackResp.data.size} categorias)")
                     baseCategories.addAll(fallbackResp.data)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Falha ao carregar categorias locais de fallback", e)
+                AppLog.e(TAG, "Falha ao carregar categorias locais de fallback", e)
             }
         }
 
@@ -179,7 +183,7 @@ class ReiDosCanaisRepository(
                 loadLocalChannelsFallback(category)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "API de canais offline, usando catálogo embarcado local", e)
+            AppLog.w(TAG, "API de canais offline, usando catálogo embarcado local", e)
             loadLocalChannelsFallback(category)
         }
 
@@ -256,16 +260,16 @@ class ReiDosCanaisRepository(
                 } else {
                     expandedList.addAll(exclusive.filter { it.category.equals(category, ignoreCase = true) })
                 }
-                Log.d(TAG, "Adicionados ${exclusive.size} canais complementares exclusivos sem duplicidade")
+                AppLog.d(TAG, "Adicionados ${exclusive.size} canais complementares exclusivos sem duplicidade")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Falha de rede ao buscar canais do Rei dos Embeds, usando contingência local", e)
+            AppLog.w(TAG, "Falha de rede ao buscar canais do Rei dos Embeds, usando contingência local", e)
             val fallbackExclusive = loadLocalExclusiveChannelsFallback(category)
             if (fallbackExclusive.isNotEmpty()) {
                 val existingIds = expandedList.map { it.id.lowercase().replace("-", "").replace("_", "") }.toSet()
                 val filtered = fallbackExclusive.filter { !existingIds.contains(it.id.lowercase().replace("-", "").replace("_", "")) }
                 expandedList.addAll(filtered)
-                Log.d(TAG, "Adicionados ${filtered.size} canais complementares do backup local sem duplicidade")
+                AppLog.d(TAG, "Adicionados ${filtered.size} canais complementares do backup local sem duplicidade")
             }
         }
 
@@ -289,7 +293,7 @@ class ReiDosCanaisRepository(
                 }
             } else emptyList()
         } catch (e: Exception) {
-            Log.e(TAG, "Falha ao carregar canais do backup local", e)
+            AppLog.e(TAG, "Falha ao carregar canais do backup local", e)
             emptyList()
         }
     }
@@ -336,7 +340,7 @@ class ReiDosCanaisRepository(
                 if (category.isNullOrBlank()) list else list.filter { it.category.equals(category, ignoreCase = true) }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Falha ao carregar canais complementares locais de fallback", e)
+            AppLog.e(TAG, "Falha ao carregar canais complementares locais de fallback", e)
             emptyList()
         }
     }
@@ -350,7 +354,7 @@ class ReiDosCanaisRepository(
                 Result.failure(Exception("Nenhum evento esportivo ao vivo"))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao buscar esportes ao vivo", e)
+            AppLog.e(TAG, "Erro ao buscar esportes ao vivo", e)
             Result.failure(e)
         }
     }
@@ -368,14 +372,14 @@ class ReiDosCanaisRepository(
         // 0. Verifica cache em memória para troca ultra-rápida (0ms)
         val cached = streamCache[channelKey]
         if (cached != null) {
-            Log.d(TAG, "Canal ${channel.name} recuperado do cache de stream: ${cached.url}")
+            AppLog.d(TAG, "Canal ${channel.name} recuperado do cache de stream: ${cached.url}")
             return@withContext cached
         }
 
         // 1. Verifica se temos stream direto verificado de alta confiabilidade
         val directUrl = DIRECT_STREAM_MAP[channelKey]
         if (directUrl != null) {
-            Log.d(TAG, "Canal ${channel.name} mapeado diretamente para HLS nativo: $directUrl")
+            AppLog.d(TAG, "Canal ${channel.name} mapeado diretamente para HLS nativo: $directUrl")
             val res = ResolvedStream(
                 type = StreamType.DIRECT_M3U8,
                 url = directUrl
@@ -401,7 +405,7 @@ class ReiDosCanaisRepository(
                 else -> "globosp" // Fallback nacional seguro para Maranhão, Paraná e demais praças com servidor regional indisponível
             }
             val targetUrl = "https://v1.rdembed.lat/$rdembedSlug"
-            Log.d(TAG, "Canal Globo ${channel.name} mapeado com segurança para Rei dos Embeds: $targetUrl")
+            AppLog.d(TAG, "Canal Globo ${channel.name} mapeado com segurança para Rei dos Embeds: $targetUrl")
             val res = ResolvedStream(
                 type = StreamType.WEB_EMBED,
                 url = targetUrl,
@@ -419,7 +423,7 @@ class ReiDosCanaisRepository(
 
         // Se for canal do Rei dos Embeds (v1.rdembed.lat)
         if (embedUrl.contains("rdembed.lat", ignoreCase = true) || embedUrl.contains("reidosembeds", ignoreCase = true)) {
-            Log.d(TAG, "Stream do Rei dos Embeds direcionado para WebView TV: $embedUrl")
+            AppLog.d(TAG, "Stream do Rei dos Embeds direcionado para WebView TV: $embedUrl")
             val res = ResolvedStream(
                 type = StreamType.WEB_EMBED,
                 url = embedUrl,
@@ -454,7 +458,7 @@ class ReiDosCanaisRepository(
                     val iframeMatcher = IFRAME_PATTERN.matcher(html)
                     if (iframeMatcher.find()) {
                         val iframeSrc = iframeMatcher.group(1).orEmpty()
-                        Log.d(TAG, "Iframe interno localizado para ${channel.name}: $iframeSrc")
+                        AppLog.d(TAG, "Iframe interno localizado para ${channel.name}: $iframeSrc")
 
                         // Caso A: Iframe possui parâmetro ?m3u8=... (ex: pqpstream ou localhost.tattoo)
                         val m3u8ParamMatcher = M3U8_PARAM_PATTERN.matcher(iframeSrc)
@@ -465,7 +469,7 @@ class ReiDosCanaisRepository(
                             } catch (e: Exception) {
                                 rawM3u8
                             }
-                            Log.d(TAG, "Stream direto .m3u8 extraído de query param: $decodedM3u8")
+                            AppLog.d(TAG, "Stream direto .m3u8 extraído de query param: $decodedM3u8")
                             val res = ResolvedStream(
                                 type = StreamType.DIRECT_M3U8,
                                 url = decodedM3u8
@@ -489,7 +493,7 @@ class ReiDosCanaisRepository(
                         // Enviamos diretamente a URL interna para a WebView, evitando o rdcanais.org que bloqueia
                         if (iframeSrc.isNotBlank()) {
                             if (iframeSrc.contains("localhost.tattoo", ignoreCase = true)) {
-                                Log.w(TAG, "Host localhost.tattoo detectado como instável para ${channel.name}, usando fallback seguro do Rei dos Embeds")
+                                AppLog.w(TAG, "Host localhost.tattoo detectado como instável para ${channel.name}, usando fallback seguro do Rei dos Embeds", debugOnly = true)
                                 val res = ResolvedStream(
                                     type = StreamType.WEB_EMBED,
                                     url = "https://v1.rdembed.lat/globosp",
@@ -508,7 +512,7 @@ class ReiDosCanaisRepository(
                             } else {
                                 iframeSrc
                             }
-                            Log.d(TAG, "Player interno direcionado para WebView TV: $targetUrl (iframeSrc=$iframeSrc)")
+                            AppLog.d(TAG, "Player interno direcionado para WebView TV: $targetUrl (iframeSrc=$iframeSrc)")
                             val res = ResolvedStream(
                                 type = StreamType.WEB_EMBED,
                                 url = targetUrl
@@ -523,7 +527,7 @@ class ReiDosCanaisRepository(
                     if (m3u8Matcher.find()) {
                         val foundUrl = m3u8Matcher.group()
                         if (!foundUrl.contains(".html") && !foundUrl.contains(".php")) {
-                            Log.d(TAG, "Stream direto .m3u8 extraído do HTML: $foundUrl")
+                            AppLog.d(TAG, "Stream direto .m3u8 extraído do HTML: $foundUrl")
                             val res = ResolvedStream(
                                 type = StreamType.DIRECT_M3U8,
                                 url = foundUrl,
@@ -536,7 +540,7 @@ class ReiDosCanaisRepository(
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Extração de stream falhou para ${channel.name}, usando fallback", e)
+            AppLog.w(TAG, "Extração de stream falhou para ${channel.name}, usando fallback", e)
         }
 
         // Fallback final
